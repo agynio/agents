@@ -195,6 +195,15 @@ func toProtoMemoryBucket(bucket store.MemoryBucket) (*teamsv1.MemoryBucket, erro
 	}, nil
 }
 
+func toProtoVariable(variable store.Variable) (*teamsv1.Variable, error) {
+	return &teamsv1.Variable{
+		Meta:        toProtoEntityMeta(variable.Meta),
+		Key:         variable.Key,
+		Value:       variable.Value,
+		Description: variable.Description,
+	}, nil
+}
+
 func toProtoAttachment(attachment store.Attachment) (*teamsv1.Attachment, error) {
 	kind, err := parseAttachmentKind(attachment.Kind)
 	if err != nil {

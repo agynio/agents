@@ -50,6 +50,13 @@ type MemoryBucket struct {
 	Config      JSONData
 }
 
+type Variable struct {
+	Meta        EntityMeta
+	Key         string
+	Value       string
+	Description string
+}
+
 type Attachment struct {
 	Meta       EntityMeta
 	Kind       string
@@ -120,6 +127,18 @@ type MemoryBucketUpdate struct {
 	Config      *JSONData
 }
 
+type VariableInput struct {
+	Key         string
+	Value       string
+	Description string
+}
+
+type VariableUpdate struct {
+	Key         *string
+	Value       *string
+	Description *string
+}
+
 type AttachmentInput struct {
 	Kind       string
 	SourceType string
@@ -134,6 +153,10 @@ type AgentFilter struct {
 
 type ToolFilter struct {
 	Type *string
+}
+
+type VariableFilter struct {
+	Query string
 }
 
 type AttachmentFilter struct {
@@ -171,6 +194,11 @@ type WorkspaceConfigurationListResult struct {
 type MemoryBucketListResult struct {
 	MemoryBuckets []MemoryBucket
 	NextCursor    *PageCursor
+}
+
+type VariableListResult struct {
+	Variables  []Variable
+	NextCursor *PageCursor
 }
 
 type AttachmentListResult struct {

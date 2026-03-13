@@ -105,6 +105,21 @@ func scanMemoryBucket(row pgx.Row) (MemoryBucket, error) {
 	return bucket, nil
 }
 
+func scanVariable(row pgx.Row) (Variable, error) {
+	var variable Variable
+	if err := row.Scan(
+		&variable.Meta.ID,
+		&variable.Key,
+		&variable.Value,
+		&variable.Description,
+		&variable.Meta.CreatedAt,
+		&variable.Meta.UpdatedAt,
+	); err != nil {
+		return Variable{}, err
+	}
+	return variable, nil
+}
+
 func scanAttachment(row pgx.Row) (Attachment, error) {
 	var attachment Attachment
 	if err := row.Scan(
@@ -570,6 +585,121 @@ func (s *Store) ListMemoryBuckets(ctx context.Context, pageSize int32, cursor *P
 		return MemoryBucketListResult{}, err
 	}
 	return MemoryBucketListResult{MemoryBuckets: buckets, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateVariable(ctx context.Context, input VariableInput) (Variable, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO variables (key, value, description)
+         VALUES ($1, $2, $3)
+         RETURNING id, key, value, description, created_at, updated_at`,
+		input.Key,
+		input.Value,
+		input.Description,
+	)
+	variable, err := scanVariable(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return Variable{}, AlreadyExists("variable")
+		}
+		return Variable{}, err
+	}
+	return variable, nil
+}
+
+func (s *Store) GetVariable(ctx context.Context, id uuid.UUID) (Variable, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, key, value, description, created_at, updated_at
+         FROM variables
+         WHERE id = $1`,
+		id,
+	)
+	variable, err := scanVariable(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Variable{}, NotFound("variable")
+		}
+		return Variable{}, err
+	}
+	return variable, nil
+}
+
+func (s *Store) UpdateVariable(ctx context.Context, id uuid.UUID, update VariableUpdate) (Variable, error) {
+	builder := updateBuilder{}
+	if update.Key != nil {
+		builder.add("key", *update.Key)
+	}
+	if update.Value != nil {
+		builder.add("value", *update.Value)
+	}
+	if update.Description != nil {
+		builder.add("description", *update.Description)
+	}
+
+	if builder.empty() {
+		return Variable{}, fmt.Errorf("variable update requires at least one field")
+	}
+	query, args := builder.build("variables", "id, key, value, description, created_at, updated_at", id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	variable, err := scanVariable(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return Variable{}, AlreadyExists("variable")
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Variable{}, NotFound("variable")
+		}
+		return Variable{}, err
+	}
+	return variable, nil
+}
+
+func (s *Store) DeleteVariable(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM variables WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("variable")
+	}
+	return nil
+}
+
+func (s *Store) ListVariables(ctx context.Context, filter VariableFilter, pageSize int32, cursor *PageCursor) (VariableListResult, error) {
+	clauses := make([]string, 0, 1)
+	args := make([]any, 0, 1)
+	if filter.Query != "" {
+		placeholder := len(args) + 1
+		clauses = append(clauses, fmt.Sprintf("key ILIKE $%d", placeholder))
+		args = append(args, "%"+filter.Query+"%")
+	}
+
+	variables, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, key, value, description, created_at, updated_at FROM variables`,
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanVariable,
+		func(variable Variable) uuid.UUID { return variable.Meta.ID },
+	)
+	if err != nil {
+		return VariableListResult{}, err
+	}
+	return VariableListResult{Variables: variables, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) ResolveVariableByKey(ctx context.Context, key string) (string, bool, error) {
+	row := s.pool.QueryRow(ctx, `SELECT value FROM variables WHERE key = $1`, key)
+	var value string
+	if err := row.Scan(&value); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return value, true, nil
 }
 
 func (s *Store) CreateAttachment(ctx context.Context, input AttachmentInput) (Attachment, error) {

@@ -548,6 +548,113 @@ func (s *Server) ListMemoryBuckets(ctx context.Context, req *teamsv1.ListMemoryB
 	return &teamsv1.ListMemoryBucketsResponse{MemoryBuckets: buckets, NextPageToken: nextToken}, nil
 }
 
+func (s *Server) CreateVariable(ctx context.Context, req *teamsv1.CreateVariableRequest) (*teamsv1.CreateVariableResponse, error) {
+	variable, err := s.store.CreateVariable(ctx, store.VariableInput{
+		Key:         req.GetKey(),
+		Value:       req.GetValue(),
+		Description: req.GetDescription(),
+	})
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	protoVariable, err := toProtoVariable(variable)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "decode variable: %v", err)
+	}
+	return &teamsv1.CreateVariableResponse{Variable: protoVariable}, nil
+}
+
+func (s *Server) GetVariable(ctx context.Context, req *teamsv1.GetVariableRequest) (*teamsv1.GetVariableResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	variable, err := s.store.GetVariable(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	protoVariable, err := toProtoVariable(variable)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "decode variable: %v", err)
+	}
+	return &teamsv1.GetVariableResponse{Variable: protoVariable}, nil
+}
+
+func (s *Server) UpdateVariable(ctx context.Context, req *teamsv1.UpdateVariableRequest) (*teamsv1.UpdateVariableResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if req.Key == nil && req.Value == nil && req.Description == nil {
+		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+
+	update := store.VariableUpdate{}
+	if req.Key != nil {
+		value := req.GetKey()
+		update.Key = &value
+	}
+	if req.Value != nil {
+		value := req.GetValue()
+		update.Value = &value
+	}
+	if req.Description != nil {
+		value := req.GetDescription()
+		update.Description = &value
+	}
+
+	variable, err := s.store.UpdateVariable(ctx, id, update)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	protoVariable, err := toProtoVariable(variable)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "decode variable: %v", err)
+	}
+	return &teamsv1.UpdateVariableResponse{Variable: protoVariable}, nil
+}
+
+func (s *Server) DeleteVariable(ctx context.Context, req *teamsv1.DeleteVariableRequest) (*teamsv1.DeleteVariableResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if err := s.store.DeleteVariable(ctx, id); err != nil {
+		return nil, toStatusError(err)
+	}
+	return &teamsv1.DeleteVariableResponse{}, nil
+}
+
+func (s *Server) ListVariables(ctx context.Context, req *teamsv1.ListVariablesRequest) (*teamsv1.ListVariablesResponse, error) {
+	cursor, err := decodePageCursor(req.GetPageToken())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
+	}
+
+	result, err := s.store.ListVariables(ctx, store.VariableFilter{Query: req.GetQuery()}, req.GetPageSize(), cursor)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+
+	variables, nextToken, err := mapListResult(result.Variables, result.NextCursor, toProtoVariable)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "decode variable: %v", err)
+	}
+	return &teamsv1.ListVariablesResponse{Variables: variables, NextPageToken: nextToken}, nil
+}
+
+func (s *Server) ResolveVariable(ctx context.Context, req *teamsv1.ResolveVariableRequest) (*teamsv1.ResolveVariableResponse, error) {
+	key := req.GetKey()
+	if key == "" {
+		return nil, status.Error(codes.InvalidArgument, "key must be provided")
+	}
+	value, found, err := s.store.ResolveVariableByKey(ctx, key)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &teamsv1.ResolveVariableResponse{Value: value, Found: found}, nil
+}
+
 func (s *Server) CreateAttachment(ctx context.Context, req *teamsv1.CreateAttachmentRequest) (*teamsv1.CreateAttachmentResponse, error) {
 	if req.GetKind() == teamsv1.AttachmentKind_ATTACHMENT_KIND_UNSPECIFIED {
 		return nil, status.Error(codes.InvalidArgument, "kind must be specified")
