@@ -230,6 +230,66 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.Len(t, listMemoryResp.MemoryBuckets, 1)
 	})
 
+	t.Run("Variables", func(t *testing.T) {
+		resetDatabase(ctx, t, pool)
+
+		variableResp1, err := client.CreateVariable(ctx, &teamsv1.CreateVariableRequest{
+			Key:         "API_KEY",
+			Value:       "secret",
+			Description: "Primary API key",
+		})
+		require.NoError(t, err)
+		variableID1 := variableResp1.Variable.Meta.Id
+
+		variableResp2, err := client.CreateVariable(ctx, &teamsv1.CreateVariableRequest{
+			Key:         "ENV",
+			Value:       "prod",
+			Description: "Environment",
+		})
+		require.NoError(t, err)
+		variableID2 := variableResp2.Variable.Meta.Id
+
+		getVariableResp, err := client.GetVariable(ctx, &teamsv1.GetVariableRequest{Id: variableID1})
+		require.NoError(t, err)
+		require.Equal(t, variableID1, getVariableResp.Variable.Meta.Id)
+		require.Equal(t, "API_KEY", getVariableResp.Variable.Key)
+
+		updatedVariableResp, err := client.UpdateVariable(ctx, &teamsv1.UpdateVariableRequest{
+			Id:    variableID1,
+			Value: proto.String("secret-updated"),
+		})
+		require.NoError(t, err)
+		require.Equal(t, "secret-updated", updatedVariableResp.Variable.Value)
+
+		listVariablesResp1, err := client.ListVariables(ctx, &teamsv1.ListVariablesRequest{PageSize: 1})
+		require.NoError(t, err)
+		require.Len(t, listVariablesResp1.Variables, 1)
+		require.NotEmpty(t, listVariablesResp1.NextPageToken)
+
+		listVariablesResp2, err := client.ListVariables(ctx, &teamsv1.ListVariablesRequest{PageToken: listVariablesResp1.NextPageToken})
+		require.NoError(t, err)
+		require.Len(t, listVariablesResp2.Variables, 1)
+		require.Empty(t, listVariablesResp2.NextPageToken)
+
+		searchVariablesResp, err := client.ListVariables(ctx, &teamsv1.ListVariablesRequest{Query: "API"})
+		require.NoError(t, err)
+		require.Len(t, searchVariablesResp.Variables, 1)
+		require.Equal(t, variableID1, searchVariablesResp.Variables[0].Meta.Id)
+
+		resolveVariableResp, err := client.ResolveVariable(ctx, &teamsv1.ResolveVariableRequest{Key: "API_KEY"})
+		require.NoError(t, err)
+		require.True(t, resolveVariableResp.Found)
+		require.Equal(t, "secret-updated", resolveVariableResp.Value)
+
+		missingVariableResp, err := client.ResolveVariable(ctx, &teamsv1.ResolveVariableRequest{Key: "MISSING"})
+		require.NoError(t, err)
+		require.False(t, missingVariableResp.Found)
+		require.Empty(t, missingVariableResp.Value)
+
+		_, err = client.DeleteVariable(ctx, &teamsv1.DeleteVariableRequest{Id: variableID2})
+		require.NoError(t, err)
+	})
+
 	t.Run("Attachments", func(t *testing.T) {
 		resetDatabase(ctx, t, pool)
 
@@ -301,6 +361,20 @@ func TestTeamsServiceE2E(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		_, err = client.CreateVariable(ctx, &teamsv1.CreateVariableRequest{
+			Key:         "DUPLICATE_KEY",
+			Value:       "first",
+			Description: "first value",
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateVariable(ctx, &teamsv1.CreateVariableRequest{
+			Key:         "DUPLICATE_KEY",
+			Value:       "second",
+			Description: "second value",
+		})
+		requireStatusCode(t, err, codes.AlreadyExists)
+
 		_, err = client.CreateAttachment(ctx, &teamsv1.CreateAttachmentRequest{
 			Kind:     teamsv1.AttachmentKind_ATTACHMENT_KIND_AGENT_TOOL,
 			SourceId: agentResp.Agent.Meta.Id,
@@ -337,7 +411,7 @@ func baseAgentConfig(name, role string) *teamsv1.AgentConfig {
 
 func resetDatabase(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(ctx, `TRUNCATE attachments, agents, tools, mcp_servers, workspace_configurations, memory_buckets RESTART IDENTITY CASCADE`)
+	_, err := pool.Exec(ctx, `TRUNCATE attachments, agents, tools, mcp_servers, workspace_configurations, memory_buckets, variables RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 }
 
