@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	teamsv1 "github.com/agynio/teams/gen/go/agynio/api/teams/v1"
+	teamsv1 "github.com/agynio/teams/.gen/go/agynio/api/teams/v1"
 	"github.com/agynio/teams/internal/store"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
