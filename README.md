@@ -1,92 +1,38 @@
 # Teams Service
 
-Go implementation of `TeamsService` from [`agynio/api`](https://github.com/agynio/api).
+The Teams service manages team resources such as agents, tools, workspaces, MCP servers, memory buckets, variables, and attachments.
 
-## Prerequisites
+Architecture: [Teams](https://github.com/agynio/architecture/blob/main/architecture/teams.md)
 
-- Go 1.25+
-- Docker (the e2e tests start Postgres via docker run)
-- [Buf CLI](https://buf.build/docs/installation) for protobuf code generation
+## Local Development
 
-## Getting started
+Full setup: [Local Development](https://github.com/agynio/architecture/blob/main/architecture/operations/local-development.md)
 
-```bash
-# Install dependencies
-go mod tidy
-
-# Generate protobuf stubs
-buf generate buf.build/agynio/api --path agynio/api/teams/v1
-
-# Start Postgres locally (listens on localhost:55433)
-docker run --name teams-postgres \
-  -e POSTGRES_USER=teams \
-  -e POSTGRES_PASSWORD=teams \
-  -e POSTGRES_DB=teams \
-  -p 55433:5432 \
-  -d public.ecr.aws/docker/library/postgres:16-alpine
-
-# Apply migrations and run the gRPC server
-DATABASE_URL="postgres://teams:teams@localhost:55433/teams?sslmode=disable" \
-  go run ./cmd/teams-service
-
-# Stop Postgres when you're done
-docker rm -f teams-postgres
-```
-
-## Testing
-
-End-to-end coverage is provided by Go tests. The suite starts/stops Postgres
-via Docker CLI commands, so the Docker daemon must be available.
+### Prepare environment
 
 ```bash
-go test ./...
+git clone https://github.com/agynio/bootstrap.git
+cd bootstrap
+chmod +x apply.sh
+./apply.sh -y
 ```
 
-## Continuous Integration
+See [bootstrap](https://github.com/agynio/bootstrap) for details.
 
-GitHub Actions run `buf generate`, `go build`, and the full test suite (including
-docker-backed e2e tests) on every push and pull request.
-
-## Releases
-
-Container images and Helm charts are published automatically when a semantic
-version tag (`vX.Y.Z`) is pushed. To cut a release:
+### Run from sources
 
 ```bash
-git tag v1.2.3
-git push origin v1.2.3
+# Deploy once (exit when healthy)
+devspace dev
+
+# Watch mode (streams logs, re-syncs on changes)
+devspace dev -w
 ```
 
-The release workflow builds and publishes the multi-architecture image to
-`ghcr.io/agynio/teams` with tags `v1.2.3` and `latest`, and packages the
-Helm chart to `oci://ghcr.io/agynio/charts` as `teams` version `1.2.3`.
-
-## Helm chart usage
-
-Install (or upgrade) the chart from GHCR. You must provide a database URL via
-an existing secret (recommended) or by supplying it directly. Exactly one of
-`database.existingSecret.name` or `database.url` must be set:
+### Run tests
 
 ```bash
-helm upgrade --install teams oci://ghcr.io/agynio/charts/teams \
-  --version 1.2.3 \
-  --namespace teams \
-  --create-namespace \
-  --set database.existingSecret.name=teams-db \
-  --set database.existingSecret.key=database-url
+devspace run test:e2e
 ```
 
-If you prefer to supply the connection string directly:
-
-```bash
-helm upgrade --install teams oci://ghcr.io/agynio/charts/teams \
-  --version 1.2.3 \
-  --set database.url="postgres://user:pass@host:port/db?sslmode=verify-full"
-```
-
-Review `charts/teams/values.yaml` for all available configuration
-options, including resource requests, replica counts, and autoscaling.
-
-When running `helm lint` or `helm template` locally, supply one of the
-database options (for example, `--set database.url=dummy`) so rendering
-passes validation.
+See [E2E Testing](https://github.com/agynio/architecture/blob/main/architecture/operations/e2e-testing.md).

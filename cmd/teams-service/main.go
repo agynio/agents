@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	teamsv1 "github.com/agynio/teams/gen/go/agynio/api/teams/v1"
+	teamsv1 "github.com/agynio/teams/.gen/go/agynio/api/teams/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 

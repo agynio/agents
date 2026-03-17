@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	teamsv1 "github.com/agynio/teams/gen/go/agynio/api/teams/v1"
+	teamsv1 "github.com/agynio/teams/.gen/go/agynio/api/teams/v1"
 	"github.com/agynio/teams/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
