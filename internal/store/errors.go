@@ -18,10 +18,22 @@ func (e *AlreadyExistsError) Error() string {
 	return fmt.Sprintf("%s already exists", e.Resource)
 }
 
+type ForeignKeyViolationError struct {
+	Resource string
+}
+
+func (e *ForeignKeyViolationError) Error() string {
+	return fmt.Sprintf("%s violates foreign key constraint", e.Resource)
+}
+
 func NotFound(resource string) error {
 	return &NotFoundError{Resource: resource}
 }
 
 func AlreadyExists(resource string) error {
 	return &AlreadyExistsError{Resource: resource}
+}
+
+func ForeignKeyViolation(resource string) error {
+	return &ForeignKeyViolationError{Resource: resource}
 }

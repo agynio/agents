@@ -21,6 +21,10 @@ func (b *updateBuilder) add(field string, value any) {
 	b.args = append(b.args, value)
 }
 
+func (b *updateBuilder) addNull(field string) {
+	b.setClauses = append(b.setClauses, fmt.Sprintf("%s = NULL", field))
+}
+
 func (b *updateBuilder) empty() bool {
 	return len(b.setClauses) == 0
 }
