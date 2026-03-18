@@ -6,165 +6,242 @@ import (
 	"github.com/google/uuid"
 )
 
-type JSONData []byte
-
 type EntityMeta struct {
 	ID        uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-type Agent struct {
-	Meta        EntityMeta
-	Title       string
-	Description string
-	Config      JSONData
+type ComputeResources struct {
+	RequestsCPU    string
+	RequestsMemory string
+	LimitsCPU      string
+	LimitsMemory   string
 }
 
-type Tool struct {
+type Agent struct {
+	Meta          EntityMeta
+	Name          string
+	Role          string
+	Model         uuid.UUID
+	Description   string
+	Configuration string
+	Image         string
+	Resources     ComputeResources
+}
+
+type Volume struct {
 	Meta        EntityMeta
-	Type        string
+	Persistent  bool
+	MountPath   string
+	Size        string
+	Description string
+}
+
+type VolumeAttachment struct {
+	Meta     EntityMeta
+	VolumeID uuid.UUID
+	AgentID  *uuid.UUID
+	McpID    *uuid.UUID
+	HookID   *uuid.UUID
+}
+
+type Mcp struct {
+	Meta        EntityMeta
+	AgentID     uuid.UUID
+	Image       string
+	Command     string
+	Resources   ComputeResources
+	Description string
+}
+
+type Skill struct {
+	Meta        EntityMeta
+	AgentID     uuid.UUID
+	Name        string
+	Body        string
+	Description string
+}
+
+type Hook struct {
+	Meta        EntityMeta
+	AgentID     uuid.UUID
+	Event       string
+	Function    string
+	Image       string
+	Resources   ComputeResources
+	Description string
+}
+
+type Env struct {
+	Meta        EntityMeta
 	Name        string
 	Description string
-	Config      JSONData
+	AgentID     *uuid.UUID
+	McpID       *uuid.UUID
+	HookID      *uuid.UUID
+	Value       *string
+	SecretID    *uuid.UUID
 }
 
-type McpServer struct {
+type InitScript struct {
 	Meta        EntityMeta
-	Title       string
+	Script      string
 	Description string
-	Config      JSONData
-}
-
-type WorkspaceConfiguration struct {
-	Meta        EntityMeta
-	Title       string
-	Description string
-	Config      JSONData
-}
-
-type MemoryBucket struct {
-	Meta        EntityMeta
-	Title       string
-	Description string
-	Config      JSONData
-}
-
-type Variable struct {
-	Meta        EntityMeta
-	Key         string
-	Value       string
-	Description string
-}
-
-type Attachment struct {
-	Meta       EntityMeta
-	Kind       string
-	SourceType string
-	SourceID   uuid.UUID
-	TargetType string
-	TargetID   uuid.UUID
+	AgentID     *uuid.UUID
+	McpID       *uuid.UUID
+	HookID      *uuid.UUID
 }
 
 type AgentInput struct {
-	Title       string
-	Description string
-	Config      JSONData
+	Name          string
+	Role          string
+	Model         uuid.UUID
+	Description   string
+	Configuration string
+	Image         string
+	Resources     ComputeResources
 }
 
 type AgentUpdate struct {
-	Title       *string
-	Description *string
-	Config      *JSONData
+	Name          *string
+	Role          *string
+	Model         *uuid.UUID
+	Description   *string
+	Configuration *string
+	Image         *string
+	Resources     *ComputeResources
 }
 
-type ToolInput struct {
-	Type        string
+type VolumeInput struct {
+	Persistent  bool
+	MountPath   string
+	Size        string
+	Description string
+}
+
+type VolumeUpdate struct {
+	Persistent  *bool
+	MountPath   *string
+	Size        *string
+	Description *string
+}
+
+type VolumeAttachmentInput struct {
+	VolumeID uuid.UUID
+	AgentID  *uuid.UUID
+	McpID    *uuid.UUID
+	HookID   *uuid.UUID
+}
+
+type McpInput struct {
+	AgentID     uuid.UUID
+	Image       string
+	Command     string
+	Resources   ComputeResources
+	Description string
+}
+
+type McpUpdate struct {
+	Image       *string
+	Command     *string
+	Resources   *ComputeResources
+	Description *string
+}
+
+type SkillInput struct {
+	AgentID     uuid.UUID
+	Name        string
+	Body        string
+	Description string
+}
+
+type SkillUpdate struct {
+	Name        *string
+	Body        *string
+	Description *string
+}
+
+type HookInput struct {
+	AgentID     uuid.UUID
+	Event       string
+	Function    string
+	Image       string
+	Resources   ComputeResources
+	Description string
+}
+
+type HookUpdate struct {
+	Event       *string
+	Function    *string
+	Image       *string
+	Resources   *ComputeResources
+	Description *string
+}
+
+type EnvInput struct {
 	Name        string
 	Description string
-	Config      JSONData
+	AgentID     *uuid.UUID
+	McpID       *uuid.UUID
+	HookID      *uuid.UUID
+	Value       *string
+	SecretID    *uuid.UUID
 }
 
-type ToolUpdate struct {
+type EnvUpdate struct {
 	Name        *string
 	Description *string
-	Config      *JSONData
-}
-
-type McpServerInput struct {
-	Title       string
-	Description string
-	Config      JSONData
-}
-
-type McpServerUpdate struct {
-	Title       *string
-	Description *string
-	Config      *JSONData
-}
-
-type WorkspaceConfigurationInput struct {
-	Title       string
-	Description string
-	Config      JSONData
-}
-
-type WorkspaceConfigurationUpdate struct {
-	Title       *string
-	Description *string
-	Config      *JSONData
-}
-
-type MemoryBucketInput struct {
-	Title       string
-	Description string
-	Config      JSONData
-}
-
-type MemoryBucketUpdate struct {
-	Title       *string
-	Description *string
-	Config      *JSONData
-}
-
-type VariableInput struct {
-	Key         string
-	Value       string
-	Description string
-}
-
-type VariableUpdate struct {
-	Key         *string
 	Value       *string
+	SecretID    *uuid.UUID
+}
+
+type InitScriptInput struct {
+	Script      string
+	Description string
+	AgentID     *uuid.UUID
+	McpID       *uuid.UUID
+	HookID      *uuid.UUID
+}
+
+type InitScriptUpdate struct {
+	Script      *string
 	Description *string
 }
 
-type AttachmentInput struct {
-	Kind       string
-	SourceType string
-	SourceID   uuid.UUID
-	TargetType string
-	TargetID   uuid.UUID
+type AgentFilter struct{}
+
+type VolumeFilter struct{}
+
+type VolumeAttachmentFilter struct {
+	VolumeID *uuid.UUID
+	AgentID  *uuid.UUID
+	McpID    *uuid.UUID
+	HookID   *uuid.UUID
 }
 
-type AgentFilter struct {
-	Query string
+type McpFilter struct {
+	AgentID *uuid.UUID
 }
 
-type ToolFilter struct {
-	Type *string
+type SkillFilter struct {
+	AgentID *uuid.UUID
 }
 
-type VariableFilter struct {
-	Query string
+type HookFilter struct {
+	AgentID *uuid.UUID
 }
 
-type AttachmentFilter struct {
-	Kind       *string
-	SourceType *string
-	SourceID   *uuid.UUID
-	TargetType *string
-	TargetID   *uuid.UUID
+type EnvFilter struct {
+	AgentID *uuid.UUID
+	McpID   *uuid.UUID
+	HookID  *uuid.UUID
+}
+
+type InitScriptFilter struct {
+	AgentID *uuid.UUID
+	McpID   *uuid.UUID
+	HookID  *uuid.UUID
 }
 
 type PageCursor struct {
@@ -176,32 +253,37 @@ type AgentListResult struct {
 	NextCursor *PageCursor
 }
 
-type ToolListResult struct {
-	Tools      []Tool
+type VolumeListResult struct {
+	Volumes    []Volume
 	NextCursor *PageCursor
 }
 
-type McpServerListResult struct {
-	McpServers []McpServer
+type VolumeAttachmentListResult struct {
+	VolumeAttachments []VolumeAttachment
+	NextCursor        *PageCursor
+}
+
+type McpListResult struct {
+	Mcps       []Mcp
 	NextCursor *PageCursor
 }
 
-type WorkspaceConfigurationListResult struct {
-	WorkspaceConfigurations []WorkspaceConfiguration
-	NextCursor              *PageCursor
-}
-
-type MemoryBucketListResult struct {
-	MemoryBuckets []MemoryBucket
-	NextCursor    *PageCursor
-}
-
-type VariableListResult struct {
-	Variables  []Variable
+type SkillListResult struct {
+	Skills     []Skill
 	NextCursor *PageCursor
 }
 
-type AttachmentListResult struct {
-	Attachments []Attachment
+type HookListResult struct {
+	Hooks      []Hook
+	NextCursor *PageCursor
+}
+
+type EnvListResult struct {
+	Envs       []Env
+	NextCursor *PageCursor
+}
+
+type InitScriptListResult struct {
+	InitScripts []InitScript
 	NextCursor  *PageCursor
 }

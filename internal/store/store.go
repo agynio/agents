@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,132 +20,206 @@ func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+func uuidPtrFromPg(value pgtype.UUID) *uuid.UUID {
+	if !value.Valid {
+		return nil
+	}
+	id := uuid.UUID(value.Bytes)
+	return &id
+}
+
+func stringPtrFromPg(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	text := value.String
+	return &text
+}
+
 func scanAgent(row pgx.Row) (Agent, error) {
 	var agent Agent
-	var config []byte
 	if err := row.Scan(
 		&agent.Meta.ID,
-		&agent.Title,
+		&agent.Name,
+		&agent.Role,
+		&agent.Model,
 		&agent.Description,
-		&config,
+		&agent.Configuration,
+		&agent.Image,
+		&agent.Resources.RequestsCPU,
+		&agent.Resources.RequestsMemory,
+		&agent.Resources.LimitsCPU,
+		&agent.Resources.LimitsMemory,
 		&agent.Meta.CreatedAt,
 		&agent.Meta.UpdatedAt,
 	); err != nil {
 		return Agent{}, err
 	}
-	agent.Config = JSONData(config)
 	return agent, nil
 }
 
-func scanTool(row pgx.Row) (Tool, error) {
-	var tool Tool
-	var config []byte
+func scanVolume(row pgx.Row) (Volume, error) {
+	var volume Volume
 	if err := row.Scan(
-		&tool.Meta.ID,
-		&tool.Type,
-		&tool.Name,
-		&tool.Description,
-		&config,
-		&tool.Meta.CreatedAt,
-		&tool.Meta.UpdatedAt,
+		&volume.Meta.ID,
+		&volume.Persistent,
+		&volume.MountPath,
+		&volume.Size,
+		&volume.Description,
+		&volume.Meta.CreatedAt,
+		&volume.Meta.UpdatedAt,
 	); err != nil {
-		return Tool{}, err
+		return Volume{}, err
 	}
-	tool.Config = JSONData(config)
-	return tool, nil
+	return volume, nil
 }
 
-func scanMcpServer(row pgx.Row) (McpServer, error) {
-	var server McpServer
-	var config []byte
-	if err := row.Scan(
-		&server.Meta.ID,
-		&server.Title,
-		&server.Description,
-		&config,
-		&server.Meta.CreatedAt,
-		&server.Meta.UpdatedAt,
-	); err != nil {
-		return McpServer{}, err
-	}
-	server.Config = JSONData(config)
-	return server, nil
-}
-
-func scanWorkspaceConfiguration(row pgx.Row) (WorkspaceConfiguration, error) {
-	var workspace WorkspaceConfiguration
-	var config []byte
-	if err := row.Scan(
-		&workspace.Meta.ID,
-		&workspace.Title,
-		&workspace.Description,
-		&config,
-		&workspace.Meta.CreatedAt,
-		&workspace.Meta.UpdatedAt,
-	); err != nil {
-		return WorkspaceConfiguration{}, err
-	}
-	workspace.Config = JSONData(config)
-	return workspace, nil
-}
-
-func scanMemoryBucket(row pgx.Row) (MemoryBucket, error) {
-	var bucket MemoryBucket
-	var config []byte
-	if err := row.Scan(
-		&bucket.Meta.ID,
-		&bucket.Title,
-		&bucket.Description,
-		&config,
-		&bucket.Meta.CreatedAt,
-		&bucket.Meta.UpdatedAt,
-	); err != nil {
-		return MemoryBucket{}, err
-	}
-	bucket.Config = JSONData(config)
-	return bucket, nil
-}
-
-func scanVariable(row pgx.Row) (Variable, error) {
-	var variable Variable
-	if err := row.Scan(
-		&variable.Meta.ID,
-		&variable.Key,
-		&variable.Value,
-		&variable.Description,
-		&variable.Meta.CreatedAt,
-		&variable.Meta.UpdatedAt,
-	); err != nil {
-		return Variable{}, err
-	}
-	return variable, nil
-}
-
-func scanAttachment(row pgx.Row) (Attachment, error) {
-	var attachment Attachment
+func scanVolumeAttachment(row pgx.Row) (VolumeAttachment, error) {
+	var attachment VolumeAttachment
+	var agentID pgtype.UUID
+	var mcpID pgtype.UUID
+	var hookID pgtype.UUID
 	if err := row.Scan(
 		&attachment.Meta.ID,
-		&attachment.Kind,
-		&attachment.SourceType,
-		&attachment.SourceID,
-		&attachment.TargetType,
-		&attachment.TargetID,
+		&attachment.VolumeID,
+		&agentID,
+		&mcpID,
+		&hookID,
 		&attachment.Meta.CreatedAt,
 		&attachment.Meta.UpdatedAt,
 	); err != nil {
-		return Attachment{}, err
+		return VolumeAttachment{}, err
 	}
+	attachment.AgentID = uuidPtrFromPg(agentID)
+	attachment.McpID = uuidPtrFromPg(mcpID)
+	attachment.HookID = uuidPtrFromPg(hookID)
 	return attachment, nil
+}
+
+func scanMcp(row pgx.Row) (Mcp, error) {
+	var mcp Mcp
+	if err := row.Scan(
+		&mcp.Meta.ID,
+		&mcp.AgentID,
+		&mcp.Image,
+		&mcp.Command,
+		&mcp.Resources.RequestsCPU,
+		&mcp.Resources.RequestsMemory,
+		&mcp.Resources.LimitsCPU,
+		&mcp.Resources.LimitsMemory,
+		&mcp.Description,
+		&mcp.Meta.CreatedAt,
+		&mcp.Meta.UpdatedAt,
+	); err != nil {
+		return Mcp{}, err
+	}
+	return mcp, nil
+}
+
+func scanSkill(row pgx.Row) (Skill, error) {
+	var skill Skill
+	if err := row.Scan(
+		&skill.Meta.ID,
+		&skill.AgentID,
+		&skill.Name,
+		&skill.Body,
+		&skill.Description,
+		&skill.Meta.CreatedAt,
+		&skill.Meta.UpdatedAt,
+	); err != nil {
+		return Skill{}, err
+	}
+	return skill, nil
+}
+
+func scanHook(row pgx.Row) (Hook, error) {
+	var hook Hook
+	if err := row.Scan(
+		&hook.Meta.ID,
+		&hook.AgentID,
+		&hook.Event,
+		&hook.Function,
+		&hook.Image,
+		&hook.Resources.RequestsCPU,
+		&hook.Resources.RequestsMemory,
+		&hook.Resources.LimitsCPU,
+		&hook.Resources.LimitsMemory,
+		&hook.Description,
+		&hook.Meta.CreatedAt,
+		&hook.Meta.UpdatedAt,
+	); err != nil {
+		return Hook{}, err
+	}
+	return hook, nil
+}
+
+func scanEnv(row pgx.Row) (Env, error) {
+	var env Env
+	var agentID pgtype.UUID
+	var mcpID pgtype.UUID
+	var hookID pgtype.UUID
+	var value pgtype.Text
+	var secretID pgtype.UUID
+	if err := row.Scan(
+		&env.Meta.ID,
+		&env.Name,
+		&env.Description,
+		&agentID,
+		&mcpID,
+		&hookID,
+		&value,
+		&secretID,
+		&env.Meta.CreatedAt,
+		&env.Meta.UpdatedAt,
+	); err != nil {
+		return Env{}, err
+	}
+	env.AgentID = uuidPtrFromPg(agentID)
+	env.McpID = uuidPtrFromPg(mcpID)
+	env.HookID = uuidPtrFromPg(hookID)
+	env.Value = stringPtrFromPg(value)
+	env.SecretID = uuidPtrFromPg(secretID)
+	return env, nil
+}
+
+func scanInitScript(row pgx.Row) (InitScript, error) {
+	var script InitScript
+	var agentID pgtype.UUID
+	var mcpID pgtype.UUID
+	var hookID pgtype.UUID
+	if err := row.Scan(
+		&script.Meta.ID,
+		&script.Script,
+		&script.Description,
+		&agentID,
+		&mcpID,
+		&hookID,
+		&script.Meta.CreatedAt,
+		&script.Meta.UpdatedAt,
+	); err != nil {
+		return InitScript{}, err
+	}
+	script.AgentID = uuidPtrFromPg(agentID)
+	script.McpID = uuidPtrFromPg(mcpID)
+	script.HookID = uuidPtrFromPg(hookID)
+	return script, nil
 }
 
 func (s *Store) CreateAgent(ctx context.Context, input AgentInput) (Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO agents (title, description, config)
-         VALUES ($1, $2, $3)
-         RETURNING id, title, description, config, created_at, updated_at`,
-		input.Title,
+		`INSERT INTO agents (name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`,
+		input.Name,
+		input.Role,
+		input.Model,
 		input.Description,
-		input.Config,
+		input.Configuration,
+		input.Image,
+		input.Resources.RequestsCPU,
+		input.Resources.RequestsMemory,
+		input.Resources.LimitsCPU,
+		input.Resources.LimitsMemory,
 	)
 	agent, err := scanAgent(row)
 	if err != nil {
@@ -155,7 +230,7 @@ func (s *Store) CreateAgent(ctx context.Context, input AgentInput) (Agent, error
 
 func (s *Store) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, title, description, config, created_at, updated_at
+		`SELECT id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at
          FROM agents
          WHERE id = $1`,
 		id,
@@ -172,20 +247,35 @@ func (s *Store) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 
 func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdate) (Agent, error) {
 	builder := updateBuilder{}
-	if update.Title != nil {
-		builder.add("title", *update.Title)
+	if update.Name != nil {
+		builder.add("name", *update.Name)
+	}
+	if update.Role != nil {
+		builder.add("role", *update.Role)
+	}
+	if update.Model != nil {
+		builder.add("model", *update.Model)
 	}
 	if update.Description != nil {
 		builder.add("description", *update.Description)
 	}
-	if update.Config != nil {
-		builder.add("config", *update.Config)
+	if update.Configuration != nil {
+		builder.add("configuration", *update.Configuration)
+	}
+	if update.Image != nil {
+		builder.add("image", *update.Image)
+	}
+	if update.Resources != nil {
+		builder.add("resources_requests_cpu", update.Resources.RequestsCPU)
+		builder.add("resources_requests_memory", update.Resources.RequestsMemory)
+		builder.add("resources_limits_cpu", update.Resources.LimitsCPU)
+		builder.add("resources_limits_memory", update.Resources.LimitsMemory)
 	}
 
 	if builder.empty() {
 		return Agent{}, fmt.Errorf("agent update requires at least one field")
 	}
-	query, args := builder.build("agents", "id, title, description, config, created_at, updated_at", id)
+	query, args := builder.build("agents", "id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at", id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	agent, err := scanAgent(row)
 	if err != nil {
@@ -200,6 +290,10 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 func (s *Store) DeleteAgent(ctx context.Context, id uuid.UUID) error {
 	result, err := s.pool.Exec(ctx, `DELETE FROM agents WHERE id = $1`, id)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ForeignKeyViolation("agent")
+		}
 		return err
 	}
 	if result.RowsAffected() == 0 {
@@ -208,19 +302,11 @@ func (s *Store) DeleteAgent(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (s *Store) ListAgents(ctx context.Context, filter AgentFilter, pageSize int32, cursor *PageCursor) (AgentListResult, error) {
-	clauses := make([]string, 0, 2)
-	args := make([]any, 0, 2)
-	if filter.Query != "" {
-		placeholder := len(args) + 1
-		clauses = append(clauses, fmt.Sprintf("(title ILIKE $%d OR description ILIKE $%d)", placeholder, placeholder))
-		args = append(args, "%"+filter.Query+"%")
-	}
-
+func (s *Store) ListAgents(ctx context.Context, _ AgentFilter, pageSize int32, cursor *PageCursor) (AgentListResult, error) {
 	agents, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, title, description, config, created_at, updated_at FROM agents`,
-		clauses,
-		args,
+		`SELECT id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at FROM agents`,
+		nil,
+		nil,
 		cursor,
 		pageSize,
 		scanAgent,
@@ -232,41 +318,558 @@ func (s *Store) ListAgents(ctx context.Context, filter AgentFilter, pageSize int
 	return AgentListResult{Agents: agents, NextCursor: nextCursor}, nil
 }
 
-func (s *Store) CreateTool(ctx context.Context, input ToolInput) (Tool, error) {
+func (s *Store) CreateVolume(ctx context.Context, input VolumeInput) (Volume, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO tools (type, name, description, config)
+		`INSERT INTO volumes (persistent, mount_path, size, description)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, type, name, description, config, created_at, updated_at`,
-		input.Type,
-		input.Name,
+         RETURNING id, persistent, mount_path, size, description, created_at, updated_at`,
+		input.Persistent,
+		input.MountPath,
+		input.Size,
 		input.Description,
-		input.Config,
 	)
-	tool, err := scanTool(row)
+	volume, err := scanVolume(row)
 	if err != nil {
-		return Tool{}, err
+		return Volume{}, err
 	}
-	return tool, nil
+	return volume, nil
 }
 
-func (s *Store) GetTool(ctx context.Context, id uuid.UUID) (Tool, error) {
+func (s *Store) GetVolume(ctx context.Context, id uuid.UUID) (Volume, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, type, name, description, config, created_at, updated_at
-         FROM tools
+		`SELECT id, persistent, mount_path, size, description, created_at, updated_at
+         FROM volumes
          WHERE id = $1`,
 		id,
 	)
-	tool, err := scanTool(row)
+	volume, err := scanVolume(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Tool{}, NotFound("tool")
+			return Volume{}, NotFound("volume")
 		}
-		return Tool{}, err
+		return Volume{}, err
 	}
-	return tool, nil
+	return volume, nil
 }
 
-func (s *Store) UpdateTool(ctx context.Context, id uuid.UUID, update ToolUpdate) (Tool, error) {
+func (s *Store) UpdateVolume(ctx context.Context, id uuid.UUID, update VolumeUpdate) (Volume, error) {
+	builder := updateBuilder{}
+	if update.Persistent != nil {
+		builder.add("persistent", *update.Persistent)
+	}
+	if update.MountPath != nil {
+		builder.add("mount_path", *update.MountPath)
+	}
+	if update.Size != nil {
+		builder.add("size", *update.Size)
+	}
+	if update.Description != nil {
+		builder.add("description", *update.Description)
+	}
+
+	if builder.empty() {
+		return Volume{}, fmt.Errorf("volume update requires at least one field")
+	}
+	query, args := builder.build("volumes", "id, persistent, mount_path, size, description, created_at, updated_at", id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	volume, err := scanVolume(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Volume{}, NotFound("volume")
+		}
+		return Volume{}, err
+	}
+	return volume, nil
+}
+
+func (s *Store) DeleteVolume(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM volumes WHERE id = $1`, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ForeignKeyViolation("volume")
+		}
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("volume")
+	}
+	return nil
+}
+
+func (s *Store) ListVolumes(ctx context.Context, _ VolumeFilter, pageSize int32, cursor *PageCursor) (VolumeListResult, error) {
+	volumes, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, persistent, mount_path, size, description, created_at, updated_at FROM volumes`,
+		nil,
+		nil,
+		cursor,
+		pageSize,
+		scanVolume,
+		func(volume Volume) uuid.UUID { return volume.Meta.ID },
+	)
+	if err != nil {
+		return VolumeListResult{}, err
+	}
+	return VolumeListResult{Volumes: volumes, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachmentInput) (VolumeAttachment, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id, hook_id)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`,
+		input.VolumeID,
+		input.AgentID,
+		input.McpID,
+		input.HookID,
+	)
+	attachment, err := scanVolumeAttachment(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return VolumeAttachment{}, AlreadyExists("volume attachment")
+			case "23503":
+				return VolumeAttachment{}, ForeignKeyViolation("volume attachment")
+			}
+		}
+		return VolumeAttachment{}, err
+	}
+	return attachment, nil
+}
+
+func (s *Store) GetVolumeAttachment(ctx context.Context, id uuid.UUID) (VolumeAttachment, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at
+         FROM volume_attachments
+         WHERE id = $1`,
+		id,
+	)
+	attachment, err := scanVolumeAttachment(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return VolumeAttachment{}, NotFound("volume attachment")
+		}
+		return VolumeAttachment{}, err
+	}
+	return attachment, nil
+}
+
+func (s *Store) DeleteVolumeAttachment(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM volume_attachments WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("volume attachment")
+	}
+	return nil
+}
+
+func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachmentFilter, pageSize int32, cursor *PageCursor) (VolumeAttachmentListResult, error) {
+	clauses := make([]string, 0, 4)
+	args := make([]any, 0, 4)
+	if filter.VolumeID != nil {
+		clauses, args = appendClause(clauses, args, "volume_id = $%d", *filter.VolumeID)
+	}
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+	if filter.McpID != nil {
+		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
+	}
+	if filter.HookID != nil {
+		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
+	}
+
+	attachments, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at FROM volume_attachments`,
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanVolumeAttachment,
+		func(attachment VolumeAttachment) uuid.UUID { return attachment.Meta.ID },
+	)
+	if err != nil {
+		return VolumeAttachmentListResult{}, err
+	}
+	return VolumeAttachmentListResult{VolumeAttachments: attachments, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO mcps (agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`,
+		input.AgentID,
+		input.Image,
+		input.Command,
+		input.Resources.RequestsCPU,
+		input.Resources.RequestsMemory,
+		input.Resources.LimitsCPU,
+		input.Resources.LimitsMemory,
+		input.Description,
+	)
+	mcp, err := scanMcp(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return Mcp{}, ForeignKeyViolation("mcp")
+		}
+		return Mcp{}, err
+	}
+	return mcp, nil
+}
+
+func (s *Store) GetMcp(ctx context.Context, id uuid.UUID) (Mcp, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at
+         FROM mcps
+         WHERE id = $1`,
+		id,
+	)
+	mcp, err := scanMcp(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Mcp{}, NotFound("mcp")
+		}
+		return Mcp{}, err
+	}
+	return mcp, nil
+}
+
+func (s *Store) UpdateMcp(ctx context.Context, id uuid.UUID, update McpUpdate) (Mcp, error) {
+	builder := updateBuilder{}
+	if update.Image != nil {
+		builder.add("image", *update.Image)
+	}
+	if update.Command != nil {
+		builder.add("command", *update.Command)
+	}
+	if update.Resources != nil {
+		builder.add("resources_requests_cpu", update.Resources.RequestsCPU)
+		builder.add("resources_requests_memory", update.Resources.RequestsMemory)
+		builder.add("resources_limits_cpu", update.Resources.LimitsCPU)
+		builder.add("resources_limits_memory", update.Resources.LimitsMemory)
+	}
+	if update.Description != nil {
+		builder.add("description", *update.Description)
+	}
+
+	if builder.empty() {
+		return Mcp{}, fmt.Errorf("mcp update requires at least one field")
+	}
+	query, args := builder.build("mcps", "id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at", id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	mcp, err := scanMcp(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Mcp{}, NotFound("mcp")
+		}
+		return Mcp{}, err
+	}
+	return mcp, nil
+}
+
+func (s *Store) DeleteMcp(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM mcps WHERE id = $1`, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ForeignKeyViolation("mcp")
+		}
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("mcp")
+	}
+	return nil
+}
+
+func (s *Store) ListMcps(ctx context.Context, filter McpFilter, pageSize int32, cursor *PageCursor) (McpListResult, error) {
+	clauses := make([]string, 0, 1)
+	args := make([]any, 0, 1)
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+
+	mcps, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at FROM mcps`,
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanMcp,
+		func(mcp Mcp) uuid.UUID { return mcp.Meta.ID },
+	)
+	if err != nil {
+		return McpListResult{}, err
+	}
+	return McpListResult{Mcps: mcps, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateSkill(ctx context.Context, input SkillInput) (Skill, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO skills (agent_id, name, body, description)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, agent_id, name, body, description, created_at, updated_at`,
+		input.AgentID,
+		input.Name,
+		input.Body,
+		input.Description,
+	)
+	skill, err := scanSkill(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return Skill{}, ForeignKeyViolation("skill")
+		}
+		return Skill{}, err
+	}
+	return skill, nil
+}
+
+func (s *Store) GetSkill(ctx context.Context, id uuid.UUID) (Skill, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, name, body, description, created_at, updated_at
+         FROM skills
+         WHERE id = $1`,
+		id,
+	)
+	skill, err := scanSkill(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Skill{}, NotFound("skill")
+		}
+		return Skill{}, err
+	}
+	return skill, nil
+}
+
+func (s *Store) UpdateSkill(ctx context.Context, id uuid.UUID, update SkillUpdate) (Skill, error) {
+	builder := updateBuilder{}
+	if update.Name != nil {
+		builder.add("name", *update.Name)
+	}
+	if update.Body != nil {
+		builder.add("body", *update.Body)
+	}
+	if update.Description != nil {
+		builder.add("description", *update.Description)
+	}
+
+	if builder.empty() {
+		return Skill{}, fmt.Errorf("skill update requires at least one field")
+	}
+	query, args := builder.build("skills", "id, agent_id, name, body, description, created_at, updated_at", id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	skill, err := scanSkill(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Skill{}, NotFound("skill")
+		}
+		return Skill{}, err
+	}
+	return skill, nil
+}
+
+func (s *Store) DeleteSkill(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM skills WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("skill")
+	}
+	return nil
+}
+
+func (s *Store) ListSkills(ctx context.Context, filter SkillFilter, pageSize int32, cursor *PageCursor) (SkillListResult, error) {
+	clauses := make([]string, 0, 1)
+	args := make([]any, 0, 1)
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+
+	skills, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, agent_id, name, body, description, created_at, updated_at FROM skills`,
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanSkill,
+		func(skill Skill) uuid.UUID { return skill.Meta.ID },
+	)
+	if err != nil {
+		return SkillListResult{}, err
+	}
+	return SkillListResult{Skills: skills, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateHook(ctx context.Context, input HookInput) (Hook, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO hooks (agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`,
+		input.AgentID,
+		input.Event,
+		input.Function,
+		input.Image,
+		input.Resources.RequestsCPU,
+		input.Resources.RequestsMemory,
+		input.Resources.LimitsCPU,
+		input.Resources.LimitsMemory,
+		input.Description,
+	)
+	hook, err := scanHook(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return Hook{}, ForeignKeyViolation("hook")
+		}
+		return Hook{}, err
+	}
+	return hook, nil
+}
+
+func (s *Store) GetHook(ctx context.Context, id uuid.UUID) (Hook, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at
+         FROM hooks
+         WHERE id = $1`,
+		id,
+	)
+	hook, err := scanHook(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Hook{}, NotFound("hook")
+		}
+		return Hook{}, err
+	}
+	return hook, nil
+}
+
+func (s *Store) UpdateHook(ctx context.Context, id uuid.UUID, update HookUpdate) (Hook, error) {
+	builder := updateBuilder{}
+	if update.Event != nil {
+		builder.add("event", *update.Event)
+	}
+	if update.Function != nil {
+		builder.add("\"function\"", *update.Function)
+	}
+	if update.Image != nil {
+		builder.add("image", *update.Image)
+	}
+	if update.Resources != nil {
+		builder.add("resources_requests_cpu", update.Resources.RequestsCPU)
+		builder.add("resources_requests_memory", update.Resources.RequestsMemory)
+		builder.add("resources_limits_cpu", update.Resources.LimitsCPU)
+		builder.add("resources_limits_memory", update.Resources.LimitsMemory)
+	}
+	if update.Description != nil {
+		builder.add("description", *update.Description)
+	}
+
+	if builder.empty() {
+		return Hook{}, fmt.Errorf("hook update requires at least one field")
+	}
+	query, args := builder.build("hooks", "id, agent_id, event, \"function\", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at", id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	hook, err := scanHook(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Hook{}, NotFound("hook")
+		}
+		return Hook{}, err
+	}
+	return hook, nil
+}
+
+func (s *Store) DeleteHook(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM hooks WHERE id = $1`, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ForeignKeyViolation("hook")
+		}
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("hook")
+	}
+	return nil
+}
+
+func (s *Store) ListHooks(ctx context.Context, filter HookFilter, pageSize int32, cursor *PageCursor) (HookListResult, error) {
+	clauses := make([]string, 0, 1)
+	args := make([]any, 0, 1)
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+
+	hooks, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at FROM hooks`,
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanHook,
+		func(hook Hook) uuid.UUID { return hook.Meta.ID },
+	)
+	if err != nil {
+		return HookListResult{}, err
+	}
+	return HookListResult{Hooks: hooks, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO envs (name, description, agent_id, mcp_id, hook_id, value, secret_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at`,
+		input.Name,
+		input.Description,
+		input.AgentID,
+		input.McpID,
+		input.HookID,
+		input.Value,
+		input.SecretID,
+	)
+	env, err := scanEnv(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return Env{}, ForeignKeyViolation("env")
+		}
+		return Env{}, err
+	}
+	return env, nil
+}
+
+func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (Env, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at
+         FROM envs
+         WHERE id = $1`,
+		id,
+	)
+	env, err := scanEnv(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Env{}, NotFound("env")
+		}
+		return Env{}, err
+	}
+	return env, nil
+}
+
+func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, update EnvUpdate) (Env, error) {
+	if update.Value != nil && update.SecretID != nil {
+		return Env{}, fmt.Errorf("env update cannot set value and secret_id")
+	}
+
 	builder := updateBuilder{}
 	if update.Name != nil {
 		builder.add("name", *update.Name)
@@ -274,515 +877,167 @@ func (s *Store) UpdateTool(ctx context.Context, id uuid.UUID, update ToolUpdate)
 	if update.Description != nil {
 		builder.add("description", *update.Description)
 	}
-	if update.Config != nil {
-		builder.add("config", *update.Config)
-	}
-
-	if builder.empty() {
-		return Tool{}, fmt.Errorf("tool update requires at least one field")
-	}
-	query, args := builder.build("tools", "id, type, name, description, config, created_at, updated_at", id)
-	row := s.pool.QueryRow(ctx, query, args...)
-	tool, err := scanTool(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Tool{}, NotFound("tool")
-		}
-		return Tool{}, err
-	}
-	return tool, nil
-}
-
-func (s *Store) DeleteTool(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM tools WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return NotFound("tool")
-	}
-	return nil
-}
-
-func (s *Store) ListTools(ctx context.Context, filter ToolFilter, pageSize int32, cursor *PageCursor) (ToolListResult, error) {
-	clauses := make([]string, 0, 2)
-	args := make([]any, 0, 2)
-	if filter.Type != nil {
-		clauses, args = appendClause(clauses, args, "type = $%d", *filter.Type)
-	}
-
-	tools, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, type, name, description, config, created_at, updated_at FROM tools`,
-		clauses,
-		args,
-		cursor,
-		pageSize,
-		scanTool,
-		func(tool Tool) uuid.UUID { return tool.Meta.ID },
-	)
-	if err != nil {
-		return ToolListResult{}, err
-	}
-	return ToolListResult{Tools: tools, NextCursor: nextCursor}, nil
-}
-
-func (s *Store) CreateMcpServer(ctx context.Context, input McpServerInput) (McpServer, error) {
-	row := s.pool.QueryRow(ctx,
-		`INSERT INTO mcp_servers (title, description, config)
-         VALUES ($1, $2, $3)
-         RETURNING id, title, description, config, created_at, updated_at`,
-		input.Title,
-		input.Description,
-		input.Config,
-	)
-	server, err := scanMcpServer(row)
-	if err != nil {
-		return McpServer{}, err
-	}
-	return server, nil
-}
-
-func (s *Store) GetMcpServer(ctx context.Context, id uuid.UUID) (McpServer, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, title, description, config, created_at, updated_at
-         FROM mcp_servers
-         WHERE id = $1`,
-		id,
-	)
-	server, err := scanMcpServer(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return McpServer{}, NotFound("mcp server")
-		}
-		return McpServer{}, err
-	}
-	return server, nil
-}
-
-func (s *Store) UpdateMcpServer(ctx context.Context, id uuid.UUID, update McpServerUpdate) (McpServer, error) {
-	builder := updateBuilder{}
-	if update.Title != nil {
-		builder.add("title", *update.Title)
-	}
-	if update.Description != nil {
-		builder.add("description", *update.Description)
-	}
-	if update.Config != nil {
-		builder.add("config", *update.Config)
-	}
-
-	if builder.empty() {
-		return McpServer{}, fmt.Errorf("mcp server update requires at least one field")
-	}
-	query, args := builder.build("mcp_servers", "id, title, description, config, created_at, updated_at", id)
-	row := s.pool.QueryRow(ctx, query, args...)
-	server, err := scanMcpServer(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return McpServer{}, NotFound("mcp server")
-		}
-		return McpServer{}, err
-	}
-	return server, nil
-}
-
-func (s *Store) DeleteMcpServer(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM mcp_servers WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return NotFound("mcp server")
-	}
-	return nil
-}
-
-func (s *Store) ListMcpServers(ctx context.Context, pageSize int32, cursor *PageCursor) (McpServerListResult, error) {
-	servers, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, title, description, config, created_at, updated_at FROM mcp_servers`,
-		nil,
-		nil,
-		cursor,
-		pageSize,
-		scanMcpServer,
-		func(server McpServer) uuid.UUID { return server.Meta.ID },
-	)
-	if err != nil {
-		return McpServerListResult{}, err
-	}
-	return McpServerListResult{McpServers: servers, NextCursor: nextCursor}, nil
-}
-
-func (s *Store) CreateWorkspaceConfiguration(ctx context.Context, input WorkspaceConfigurationInput) (WorkspaceConfiguration, error) {
-	row := s.pool.QueryRow(ctx,
-		`INSERT INTO workspace_configurations (title, description, config)
-         VALUES ($1, $2, $3)
-         RETURNING id, title, description, config, created_at, updated_at`,
-		input.Title,
-		input.Description,
-		input.Config,
-	)
-	workspace, err := scanWorkspaceConfiguration(row)
-	if err != nil {
-		return WorkspaceConfiguration{}, err
-	}
-	return workspace, nil
-}
-
-func (s *Store) GetWorkspaceConfiguration(ctx context.Context, id uuid.UUID) (WorkspaceConfiguration, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, title, description, config, created_at, updated_at
-         FROM workspace_configurations
-         WHERE id = $1`,
-		id,
-	)
-	workspace, err := scanWorkspaceConfiguration(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return WorkspaceConfiguration{}, NotFound("workspace configuration")
-		}
-		return WorkspaceConfiguration{}, err
-	}
-	return workspace, nil
-}
-
-func (s *Store) UpdateWorkspaceConfiguration(ctx context.Context, id uuid.UUID, update WorkspaceConfigurationUpdate) (WorkspaceConfiguration, error) {
-	builder := updateBuilder{}
-	if update.Title != nil {
-		builder.add("title", *update.Title)
-	}
-	if update.Description != nil {
-		builder.add("description", *update.Description)
-	}
-	if update.Config != nil {
-		builder.add("config", *update.Config)
-	}
-
-	if builder.empty() {
-		return WorkspaceConfiguration{}, fmt.Errorf("workspace configuration update requires at least one field")
-	}
-	query, args := builder.build("workspace_configurations", "id, title, description, config, created_at, updated_at", id)
-	row := s.pool.QueryRow(ctx, query, args...)
-	workspace, err := scanWorkspaceConfiguration(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return WorkspaceConfiguration{}, NotFound("workspace configuration")
-		}
-		return WorkspaceConfiguration{}, err
-	}
-	return workspace, nil
-}
-
-func (s *Store) DeleteWorkspaceConfiguration(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM workspace_configurations WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return NotFound("workspace configuration")
-	}
-	return nil
-}
-
-func (s *Store) ListWorkspaceConfigurations(ctx context.Context, pageSize int32, cursor *PageCursor) (WorkspaceConfigurationListResult, error) {
-	workspaces, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, title, description, config, created_at, updated_at FROM workspace_configurations`,
-		nil,
-		nil,
-		cursor,
-		pageSize,
-		scanWorkspaceConfiguration,
-		func(workspace WorkspaceConfiguration) uuid.UUID { return workspace.Meta.ID },
-	)
-	if err != nil {
-		return WorkspaceConfigurationListResult{}, err
-	}
-	return WorkspaceConfigurationListResult{WorkspaceConfigurations: workspaces, NextCursor: nextCursor}, nil
-}
-
-func (s *Store) CreateMemoryBucket(ctx context.Context, input MemoryBucketInput) (MemoryBucket, error) {
-	row := s.pool.QueryRow(ctx,
-		`INSERT INTO memory_buckets (title, description, config)
-         VALUES ($1, $2, $3)
-         RETURNING id, title, description, config, created_at, updated_at`,
-		input.Title,
-		input.Description,
-		input.Config,
-	)
-	bucket, err := scanMemoryBucket(row)
-	if err != nil {
-		return MemoryBucket{}, err
-	}
-	return bucket, nil
-}
-
-func (s *Store) GetMemoryBucket(ctx context.Context, id uuid.UUID) (MemoryBucket, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, title, description, config, created_at, updated_at
-         FROM memory_buckets
-         WHERE id = $1`,
-		id,
-	)
-	bucket, err := scanMemoryBucket(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return MemoryBucket{}, NotFound("memory bucket")
-		}
-		return MemoryBucket{}, err
-	}
-	return bucket, nil
-}
-
-func (s *Store) UpdateMemoryBucket(ctx context.Context, id uuid.UUID, update MemoryBucketUpdate) (MemoryBucket, error) {
-	builder := updateBuilder{}
-	if update.Title != nil {
-		builder.add("title", *update.Title)
-	}
-	if update.Description != nil {
-		builder.add("description", *update.Description)
-	}
-	if update.Config != nil {
-		builder.add("config", *update.Config)
-	}
-
-	if builder.empty() {
-		return MemoryBucket{}, fmt.Errorf("memory bucket update requires at least one field")
-	}
-	query, args := builder.build("memory_buckets", "id, title, description, config, created_at, updated_at", id)
-	row := s.pool.QueryRow(ctx, query, args...)
-	bucket, err := scanMemoryBucket(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return MemoryBucket{}, NotFound("memory bucket")
-		}
-		return MemoryBucket{}, err
-	}
-	return bucket, nil
-}
-
-func (s *Store) DeleteMemoryBucket(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM memory_buckets WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return NotFound("memory bucket")
-	}
-	return nil
-}
-
-func (s *Store) ListMemoryBuckets(ctx context.Context, pageSize int32, cursor *PageCursor) (MemoryBucketListResult, error) {
-	buckets, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, title, description, config, created_at, updated_at FROM memory_buckets`,
-		nil,
-		nil,
-		cursor,
-		pageSize,
-		scanMemoryBucket,
-		func(bucket MemoryBucket) uuid.UUID { return bucket.Meta.ID },
-	)
-	if err != nil {
-		return MemoryBucketListResult{}, err
-	}
-	return MemoryBucketListResult{MemoryBuckets: buckets, NextCursor: nextCursor}, nil
-}
-
-func (s *Store) CreateVariable(ctx context.Context, input VariableInput) (Variable, error) {
-	row := s.pool.QueryRow(ctx,
-		`INSERT INTO variables (key, value, description)
-         VALUES ($1, $2, $3)
-         RETURNING id, key, value, description, created_at, updated_at`,
-		input.Key,
-		input.Value,
-		input.Description,
-	)
-	variable, err := scanVariable(row)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return Variable{}, AlreadyExists("variable")
-		}
-		return Variable{}, err
-	}
-	return variable, nil
-}
-
-func (s *Store) GetVariable(ctx context.Context, id uuid.UUID) (Variable, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, key, value, description, created_at, updated_at
-         FROM variables
-         WHERE id = $1`,
-		id,
-	)
-	variable, err := scanVariable(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Variable{}, NotFound("variable")
-		}
-		return Variable{}, err
-	}
-	return variable, nil
-}
-
-func (s *Store) UpdateVariable(ctx context.Context, id uuid.UUID, update VariableUpdate) (Variable, error) {
-	builder := updateBuilder{}
-	if update.Key != nil {
-		builder.add("key", *update.Key)
-	}
 	if update.Value != nil {
 		builder.add("value", *update.Value)
+		builder.addNull("secret_id")
+	}
+	if update.SecretID != nil {
+		builder.add("secret_id", *update.SecretID)
+		builder.addNull("value")
+	}
+
+	if builder.empty() {
+		return Env{}, fmt.Errorf("env update requires at least one field")
+	}
+	query, args := builder.build("envs", "id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at", id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	env, err := scanEnv(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Env{}, NotFound("env")
+		}
+		return Env{}, err
+	}
+	return env, nil
+}
+
+func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM envs WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("env")
+	}
+	return nil
+}
+
+func (s *Store) ListEnvs(ctx context.Context, filter EnvFilter, pageSize int32, cursor *PageCursor) (EnvListResult, error) {
+	clauses := make([]string, 0, 3)
+	args := make([]any, 0, 3)
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+	if filter.McpID != nil {
+		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
+	}
+	if filter.HookID != nil {
+		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
+	}
+
+	envs, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at FROM envs`,
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanEnv,
+		func(env Env) uuid.UUID { return env.Meta.ID },
+	)
+	if err != nil {
+		return EnvListResult{}, err
+	}
+	return EnvListResult{Envs: envs, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (InitScript, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO init_scripts (script, description, agent_id, mcp_id, hook_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at`,
+		input.Script,
+		input.Description,
+		input.AgentID,
+		input.McpID,
+		input.HookID,
+	)
+	script, err := scanInitScript(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return InitScript{}, ForeignKeyViolation("init script")
+		}
+		return InitScript{}, err
+	}
+	return script, nil
+}
+
+func (s *Store) GetInitScript(ctx context.Context, id uuid.UUID) (InitScript, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at
+         FROM init_scripts
+         WHERE id = $1`,
+		id,
+	)
+	script, err := scanInitScript(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return InitScript{}, NotFound("init script")
+		}
+		return InitScript{}, err
+	}
+	return script, nil
+}
+
+func (s *Store) UpdateInitScript(ctx context.Context, id uuid.UUID, update InitScriptUpdate) (InitScript, error) {
+	builder := updateBuilder{}
+	if update.Script != nil {
+		builder.add("script", *update.Script)
 	}
 	if update.Description != nil {
 		builder.add("description", *update.Description)
 	}
 
 	if builder.empty() {
-		return Variable{}, fmt.Errorf("variable update requires at least one field")
+		return InitScript{}, fmt.Errorf("init script update requires at least one field")
 	}
-	query, args := builder.build("variables", "id, key, value, description, created_at, updated_at", id)
+	query, args := builder.build("init_scripts", "id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at", id)
 	row := s.pool.QueryRow(ctx, query, args...)
-	variable, err := scanVariable(row)
+	script, err := scanInitScript(row)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return Variable{}, AlreadyExists("variable")
-		}
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Variable{}, NotFound("variable")
+			return InitScript{}, NotFound("init script")
 		}
-		return Variable{}, err
+		return InitScript{}, err
 	}
-	return variable, nil
+	return script, nil
 }
 
-func (s *Store) DeleteVariable(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM variables WHERE id = $1`, id)
+func (s *Store) DeleteInitScript(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM init_scripts WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
-		return NotFound("variable")
+		return NotFound("init script")
 	}
 	return nil
 }
 
-func (s *Store) ListVariables(ctx context.Context, filter VariableFilter, pageSize int32, cursor *PageCursor) (VariableListResult, error) {
-	clauses := make([]string, 0, 1)
-	args := make([]any, 0, 1)
-	if filter.Query != "" {
-		placeholder := len(args) + 1
-		clauses = append(clauses, fmt.Sprintf("key ILIKE $%d", placeholder))
-		args = append(args, "%"+filter.Query+"%")
+func (s *Store) ListInitScripts(ctx context.Context, filter InitScriptFilter, pageSize int32, cursor *PageCursor) (InitScriptListResult, error) {
+	clauses := make([]string, 0, 3)
+	args := make([]any, 0, 3)
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+	if filter.McpID != nil {
+		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
+	}
+	if filter.HookID != nil {
+		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
 	}
 
-	variables, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, key, value, description, created_at, updated_at FROM variables`,
+	scripts, nextCursor, err := listEntities(ctx, s.pool,
+		`SELECT id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at FROM init_scripts`,
 		clauses,
 		args,
 		cursor,
 		pageSize,
-		scanVariable,
-		func(variable Variable) uuid.UUID { return variable.Meta.ID },
+		scanInitScript,
+		func(script InitScript) uuid.UUID { return script.Meta.ID },
 	)
 	if err != nil {
-		return VariableListResult{}, err
+		return InitScriptListResult{}, err
 	}
-	return VariableListResult{Variables: variables, NextCursor: nextCursor}, nil
-}
-
-func (s *Store) ResolveVariableByKey(ctx context.Context, key string) (string, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT value FROM variables WHERE key = $1`, key)
-	var value string
-	if err := row.Scan(&value); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	return value, true, nil
-}
-
-func (s *Store) CreateAttachment(ctx context.Context, input AttachmentInput) (Attachment, error) {
-	row := s.pool.QueryRow(ctx,
-		`INSERT INTO attachments (kind, source_type, source_id, target_type, target_id)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, kind, source_type, source_id, target_type, target_id, created_at, updated_at`,
-		input.Kind,
-		input.SourceType,
-		input.SourceID,
-		input.TargetType,
-		input.TargetID,
-	)
-	attachment, err := scanAttachment(row)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return Attachment{}, AlreadyExists("attachment")
-		}
-		return Attachment{}, err
-	}
-	return attachment, nil
-}
-
-func (s *Store) GetAttachment(ctx context.Context, id uuid.UUID) (Attachment, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, kind, source_type, source_id, target_type, target_id, created_at, updated_at
-         FROM attachments
-         WHERE id = $1`,
-		id,
-	)
-	attachment, err := scanAttachment(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Attachment{}, NotFound("attachment")
-		}
-		return Attachment{}, err
-	}
-	return attachment, nil
-}
-
-func (s *Store) DeleteAttachment(ctx context.Context, id uuid.UUID) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM attachments WHERE id = $1`, id)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return NotFound("attachment")
-	}
-	return nil
-}
-
-func (s *Store) ListAttachments(ctx context.Context, filter AttachmentFilter, pageSize int32, cursor *PageCursor) (AttachmentListResult, error) {
-	clauses := make([]string, 0, 5)
-	args := make([]any, 0, 5)
-
-	if filter.Kind != nil {
-		clauses, args = appendClause(clauses, args, "kind = $%d", *filter.Kind)
-	}
-	if filter.SourceType != nil {
-		clauses, args = appendClause(clauses, args, "source_type = $%d", *filter.SourceType)
-	}
-	if filter.SourceID != nil {
-		clauses, args = appendClause(clauses, args, "source_id = $%d", *filter.SourceID)
-	}
-	if filter.TargetType != nil {
-		clauses, args = appendClause(clauses, args, "target_type = $%d", *filter.TargetType)
-	}
-	if filter.TargetID != nil {
-		clauses, args = appendClause(clauses, args, "target_id = $%d", *filter.TargetID)
-	}
-
-	attachments, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, kind, source_type, source_id, target_type, target_id, created_at, updated_at FROM attachments`,
-		clauses,
-		args,
-		cursor,
-		pageSize,
-		scanAttachment,
-		func(attachment Attachment) uuid.UUID { return attachment.Meta.ID },
-	)
-	if err != nil {
-		return AttachmentListResult{}, err
-	}
-	return AttachmentListResult{Attachments: attachments, NextCursor: nextCursor}, nil
+	return InitScriptListResult{InitScripts: scripts, NextCursor: nextCursor}, nil
 }
