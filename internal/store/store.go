@@ -12,6 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	agentColumns            = `id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
+	volumeColumns           = `id, persistent, mount_path, size, description, created_at, updated_at`
+	volumeAttachmentColumns = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
+	mcpColumns              = `id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
+	skillColumns            = `id, agent_id, name, body, description, created_at, updated_at`
+	hookColumns             = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
+	envColumns              = `id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at`
+	initScriptColumns       = `id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at`
+)
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -207,9 +218,9 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 
 func (s *Store) CreateAgent(ctx context.Context, input AgentInput) (Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO agents (name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
+		fmt.Sprintf(`INSERT INTO agents (name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`,
+         RETURNING %s`, agentColumns),
 		input.Name,
 		input.Role,
 		input.Model,
@@ -230,9 +241,7 @@ func (s *Store) CreateAgent(ctx context.Context, input AgentInput) (Agent, error
 
 func (s *Store) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at
-         FROM agents
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM agents WHERE id = $1`, agentColumns),
 		id,
 	)
 	agent, err := scanAgent(row)
@@ -275,7 +284,7 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 	if builder.empty() {
 		return Agent{}, fmt.Errorf("agent update requires at least one field")
 	}
-	query, args := builder.build("agents", "id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at", id)
+	query, args := builder.build("agents", agentColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	agent, err := scanAgent(row)
 	if err != nil {
@@ -304,7 +313,7 @@ func (s *Store) DeleteAgent(ctx context.Context, id uuid.UUID) error {
 
 func (s *Store) ListAgents(ctx context.Context, _ AgentFilter, pageSize int32, cursor *PageCursor) (AgentListResult, error) {
 	agents, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at FROM agents`,
+		fmt.Sprintf("SELECT %s FROM agents", agentColumns),
 		nil,
 		nil,
 		cursor,
@@ -320,9 +329,9 @@ func (s *Store) ListAgents(ctx context.Context, _ AgentFilter, pageSize int32, c
 
 func (s *Store) CreateVolume(ctx context.Context, input VolumeInput) (Volume, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO volumes (persistent, mount_path, size, description)
+		fmt.Sprintf(`INSERT INTO volumes (persistent, mount_path, size, description)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, persistent, mount_path, size, description, created_at, updated_at`,
+         RETURNING %s`, volumeColumns),
 		input.Persistent,
 		input.MountPath,
 		input.Size,
@@ -337,9 +346,7 @@ func (s *Store) CreateVolume(ctx context.Context, input VolumeInput) (Volume, er
 
 func (s *Store) GetVolume(ctx context.Context, id uuid.UUID) (Volume, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, persistent, mount_path, size, description, created_at, updated_at
-         FROM volumes
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM volumes WHERE id = $1`, volumeColumns),
 		id,
 	)
 	volume, err := scanVolume(row)
@@ -370,7 +377,7 @@ func (s *Store) UpdateVolume(ctx context.Context, id uuid.UUID, update VolumeUpd
 	if builder.empty() {
 		return Volume{}, fmt.Errorf("volume update requires at least one field")
 	}
-	query, args := builder.build("volumes", "id, persistent, mount_path, size, description, created_at, updated_at", id)
+	query, args := builder.build("volumes", volumeColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	volume, err := scanVolume(row)
 	if err != nil {
@@ -399,7 +406,7 @@ func (s *Store) DeleteVolume(ctx context.Context, id uuid.UUID) error {
 
 func (s *Store) ListVolumes(ctx context.Context, _ VolumeFilter, pageSize int32, cursor *PageCursor) (VolumeListResult, error) {
 	volumes, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, persistent, mount_path, size, description, created_at, updated_at FROM volumes`,
+		fmt.Sprintf("SELECT %s FROM volumes", volumeColumns),
 		nil,
 		nil,
 		cursor,
@@ -415,9 +422,9 @@ func (s *Store) ListVolumes(ctx context.Context, _ VolumeFilter, pageSize int32,
 
 func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachmentInput) (VolumeAttachment, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id, hook_id)
+		fmt.Sprintf(`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id, hook_id)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`,
+         RETURNING %s`, volumeAttachmentColumns),
 		input.VolumeID,
 		input.AgentID,
 		input.McpID,
@@ -441,9 +448,7 @@ func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachme
 
 func (s *Store) GetVolumeAttachment(ctx context.Context, id uuid.UUID) (VolumeAttachment, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at
-         FROM volume_attachments
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM volume_attachments WHERE id = $1`, volumeAttachmentColumns),
 		id,
 	)
 	attachment, err := scanVolumeAttachment(row)
@@ -484,7 +489,7 @@ func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachme
 	}
 
 	attachments, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at FROM volume_attachments`,
+		fmt.Sprintf("SELECT %s FROM volume_attachments", volumeAttachmentColumns),
 		clauses,
 		args,
 		cursor,
@@ -500,9 +505,9 @@ func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachme
 
 func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO mcps (agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
+		fmt.Sprintf(`INSERT INTO mcps (agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`,
+         RETURNING %s`, mcpColumns),
 		input.AgentID,
 		input.Image,
 		input.Command,
@@ -525,9 +530,7 @@ func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 
 func (s *Store) GetMcp(ctx context.Context, id uuid.UUID) (Mcp, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at
-         FROM mcps
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM mcps WHERE id = $1`, mcpColumns),
 		id,
 	)
 	mcp, err := scanMcp(row)
@@ -561,7 +564,7 @@ func (s *Store) UpdateMcp(ctx context.Context, id uuid.UUID, update McpUpdate) (
 	if builder.empty() {
 		return Mcp{}, fmt.Errorf("mcp update requires at least one field")
 	}
-	query, args := builder.build("mcps", "id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at", id)
+	query, args := builder.build("mcps", mcpColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	mcp, err := scanMcp(row)
 	if err != nil {
@@ -596,7 +599,7 @@ func (s *Store) ListMcps(ctx context.Context, filter McpFilter, pageSize int32, 
 	}
 
 	mcps, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at FROM mcps`,
+		fmt.Sprintf("SELECT %s FROM mcps", mcpColumns),
 		clauses,
 		args,
 		cursor,
@@ -612,9 +615,9 @@ func (s *Store) ListMcps(ctx context.Context, filter McpFilter, pageSize int32, 
 
 func (s *Store) CreateSkill(ctx context.Context, input SkillInput) (Skill, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO skills (agent_id, name, body, description)
+		fmt.Sprintf(`INSERT INTO skills (agent_id, name, body, description)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, agent_id, name, body, description, created_at, updated_at`,
+         RETURNING %s`, skillColumns),
 		input.AgentID,
 		input.Name,
 		input.Body,
@@ -633,9 +636,7 @@ func (s *Store) CreateSkill(ctx context.Context, input SkillInput) (Skill, error
 
 func (s *Store) GetSkill(ctx context.Context, id uuid.UUID) (Skill, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, name, body, description, created_at, updated_at
-         FROM skills
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM skills WHERE id = $1`, skillColumns),
 		id,
 	)
 	skill, err := scanSkill(row)
@@ -663,7 +664,7 @@ func (s *Store) UpdateSkill(ctx context.Context, id uuid.UUID, update SkillUpdat
 	if builder.empty() {
 		return Skill{}, fmt.Errorf("skill update requires at least one field")
 	}
-	query, args := builder.build("skills", "id, agent_id, name, body, description, created_at, updated_at", id)
+	query, args := builder.build("skills", skillColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	skill, err := scanSkill(row)
 	if err != nil {
@@ -694,7 +695,7 @@ func (s *Store) ListSkills(ctx context.Context, filter SkillFilter, pageSize int
 	}
 
 	skills, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, agent_id, name, body, description, created_at, updated_at FROM skills`,
+		fmt.Sprintf("SELECT %s FROM skills", skillColumns),
 		clauses,
 		args,
 		cursor,
@@ -710,9 +711,9 @@ func (s *Store) ListSkills(ctx context.Context, filter SkillFilter, pageSize int
 
 func (s *Store) CreateHook(ctx context.Context, input HookInput) (Hook, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO hooks (agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
+		fmt.Sprintf(`INSERT INTO hooks (agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`,
+         RETURNING %s`, hookColumns),
 		input.AgentID,
 		input.Event,
 		input.Function,
@@ -736,9 +737,7 @@ func (s *Store) CreateHook(ctx context.Context, input HookInput) (Hook, error) {
 
 func (s *Store) GetHook(ctx context.Context, id uuid.UUID) (Hook, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at
-         FROM hooks
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM hooks WHERE id = $1`, hookColumns),
 		id,
 	)
 	hook, err := scanHook(row)
@@ -775,7 +774,7 @@ func (s *Store) UpdateHook(ctx context.Context, id uuid.UUID, update HookUpdate)
 	if builder.empty() {
 		return Hook{}, fmt.Errorf("hook update requires at least one field")
 	}
-	query, args := builder.build("hooks", "id, agent_id, event, \"function\", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at", id)
+	query, args := builder.build("hooks", hookColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	hook, err := scanHook(row)
 	if err != nil {
@@ -810,7 +809,7 @@ func (s *Store) ListHooks(ctx context.Context, filter HookFilter, pageSize int32
 	}
 
 	hooks, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at FROM hooks`,
+		fmt.Sprintf("SELECT %s FROM hooks", hookColumns),
 		clauses,
 		args,
 		cursor,
@@ -826,9 +825,9 @@ func (s *Store) ListHooks(ctx context.Context, filter HookFilter, pageSize int32
 
 func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO envs (name, description, agent_id, mcp_id, hook_id, value, secret_id)
+		fmt.Sprintf(`INSERT INTO envs (name, description, agent_id, mcp_id, hook_id, value, secret_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at`,
+         RETURNING %s`, envColumns),
 		input.Name,
 		input.Description,
 		input.AgentID,
@@ -850,9 +849,7 @@ func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 
 func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (Env, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at
-         FROM envs
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM envs WHERE id = $1`, envColumns),
 		id,
 	)
 	env, err := scanEnv(row)
@@ -866,10 +863,6 @@ func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (Env, error) {
 }
 
 func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, update EnvUpdate) (Env, error) {
-	if update.Value != nil && update.SecretID != nil {
-		return Env{}, fmt.Errorf("env update cannot set value and secret_id")
-	}
-
 	builder := updateBuilder{}
 	if update.Name != nil {
 		builder.add("name", *update.Name)
@@ -889,7 +882,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, update EnvUpdate) (
 	if builder.empty() {
 		return Env{}, fmt.Errorf("env update requires at least one field")
 	}
-	query, args := builder.build("envs", "id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at", id)
+	query, args := builder.build("envs", envColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	env, err := scanEnv(row)
 	if err != nil {
@@ -926,7 +919,7 @@ func (s *Store) ListEnvs(ctx context.Context, filter EnvFilter, pageSize int32, 
 	}
 
 	envs, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at FROM envs`,
+		fmt.Sprintf("SELECT %s FROM envs", envColumns),
 		clauses,
 		args,
 		cursor,
@@ -942,9 +935,9 @@ func (s *Store) ListEnvs(ctx context.Context, filter EnvFilter, pageSize int32, 
 
 func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (InitScript, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO init_scripts (script, description, agent_id, mcp_id, hook_id)
+		fmt.Sprintf(`INSERT INTO init_scripts (script, description, agent_id, mcp_id, hook_id)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at`,
+         RETURNING %s`, initScriptColumns),
 		input.Script,
 		input.Description,
 		input.AgentID,
@@ -964,9 +957,7 @@ func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (In
 
 func (s *Store) GetInitScript(ctx context.Context, id uuid.UUID) (InitScript, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at
-         FROM init_scripts
-         WHERE id = $1`,
+		fmt.Sprintf(`SELECT %s FROM init_scripts WHERE id = $1`, initScriptColumns),
 		id,
 	)
 	script, err := scanInitScript(row)
@@ -991,7 +982,7 @@ func (s *Store) UpdateInitScript(ctx context.Context, id uuid.UUID, update InitS
 	if builder.empty() {
 		return InitScript{}, fmt.Errorf("init script update requires at least one field")
 	}
-	query, args := builder.build("init_scripts", "id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at", id)
+	query, args := builder.build("init_scripts", initScriptColumns, id)
 	row := s.pool.QueryRow(ctx, query, args...)
 	script, err := scanInitScript(row)
 	if err != nil {
@@ -1028,7 +1019,7 @@ func (s *Store) ListInitScripts(ctx context.Context, filter InitScriptFilter, pa
 	}
 
 	scripts, nextCursor, err := listEntities(ctx, s.pool,
-		`SELECT id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at FROM init_scripts`,
+		fmt.Sprintf("SELECT %s FROM init_scripts", initScriptColumns),
 		clauses,
 		args,
 		cursor,

@@ -14,7 +14,7 @@ CREATE TABLE agents (
     role TEXT NOT NULL DEFAULT '',
     model UUID NOT NULL,
     description TEXT NOT NULL DEFAULT '',
-    configuration TEXT NOT NULL DEFAULT '',
+    configuration TEXT NOT NULL DEFAULT '{}',
     image TEXT NOT NULL DEFAULT '',
     resources_requests_cpu TEXT NOT NULL DEFAULT '',
     resources_requests_memory TEXT NOT NULL DEFAULT '',
@@ -80,7 +80,7 @@ CREATE TABLE volume_attachments (
     mcp_id UUID REFERENCES mcps(id),
     hook_id UUID REFERENCES hooks(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- kept for EntityMeta uniformity
     CHECK ((agent_id IS NOT NULL)::int + (mcp_id IS NOT NULL)::int + (hook_id IS NOT NULL)::int = 1)
 );
 

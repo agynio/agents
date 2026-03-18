@@ -71,8 +71,8 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NotEmpty(t, listAgentsResp1.NextPageToken)
 
 		listAgents := listAgents(ctx, t, client)
-		require.True(t, hasAgentID(listAgents, agentID1))
-		require.True(t, hasAgentID(listAgents, agentID2))
+		require.True(t, hasID(listAgents, agentID1))
+		require.True(t, hasID(listAgents, agentID2))
 
 		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID2})
 		require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.Equal(t, "Volume Updated "+testID, updatedVolumeResp.Volume.Description)
 
 		volumes := listVolumes(ctx, t, client)
-		require.True(t, hasVolumeID(volumes, volumeID))
+		require.True(t, hasID(volumes, volumeID))
 
 		_, err = client.DeleteVolume(ctx, &teamsv1.DeleteVolumeRequest{Id: volumeID})
 		require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.Equal(t, "Mcp Updated "+testID, updatedMcpResp.Mcp.Description)
 
 		mcps := listMcpsByAgent(ctx, t, client, agentID)
-		require.True(t, hasMcpID(mcps, mcpID))
+		require.True(t, hasID(mcps, mcpID))
 
 		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.Equal(t, "updated body", updatedSkillResp.Skill.Body)
 
 		skills := listSkillsByAgent(ctx, t, client, agentID)
-		require.True(t, hasSkillID(skills, skillID))
+		require.True(t, hasID(skills, skillID))
 
 		_, err = client.DeleteSkill(ctx, &teamsv1.DeleteSkillRequest{Id: skillID})
 		require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.Equal(t, "on_stop", updatedHookResp.Hook.Event)
 
 		hooks := listHooksByAgent(ctx, t, client, agentID)
-		require.True(t, hasHookID(hooks, hookID))
+		require.True(t, hasID(hooks, hookID))
 
 		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
 		require.NoError(t, err)
@@ -239,6 +239,27 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
+		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+			AgentId:     agentID,
+			Image:       "mcp-image:latest",
+			Command:     "mcp --env",
+			Resources:   baseResources(),
+			Description: "Env mcp " + testID,
+		})
+		require.NoError(t, err)
+		mcpID := mcpResp.Mcp.Meta.Id
+
+		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+			AgentId:     agentID,
+			Event:       "env_event",
+			Function:    "envHandler",
+			Image:       "hook-image:latest",
+			Resources:   baseResources(),
+			Description: "Env hook " + testID,
+		})
+		require.NoError(t, err)
+		hookID := hookResp.Hook.Meta.Id
+
 		envResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
 			Name:        "ENV_VAR",
 			Description: "Env " + testID,
@@ -248,6 +269,24 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		envID := envResp.Env.Meta.Id
 
+		envMcpResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
+			Name:        "MCP_ENV",
+			Description: "Env mcp " + testID,
+			Target:      &teamsv1.CreateEnvRequest_McpId{McpId: mcpID},
+			Source:      &teamsv1.CreateEnvRequest_Value{Value: "mcp-value"},
+		})
+		require.NoError(t, err)
+		envMcpID := envMcpResp.Env.Meta.Id
+
+		envHookResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
+			Name:        "HOOK_ENV",
+			Description: "Env hook " + testID,
+			Target:      &teamsv1.CreateEnvRequest_HookId{HookId: hookID},
+			Source:      &teamsv1.CreateEnvRequest_Value{Value: "hook-value"},
+		})
+		require.NoError(t, err)
+		envHookID := envHookResp.Env.Meta.Id
+
 		secretID := uuid.NewString()
 		updatedEnvResp, err := client.UpdateEnv(ctx, &teamsv1.UpdateEnvRequest{
 			Id:       envID,
@@ -256,10 +295,22 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, secretID, updatedEnvResp.Env.GetSecretId())
 
-		envs := listEnvsByAgent(ctx, t, client, agentID)
-		require.True(t, hasEnvID(envs, envID))
+		envsByAgent := listEnvs(ctx, t, client, &teamsv1.ListEnvsRequest{AgentId: agentID})
+		require.True(t, hasID(envsByAgent, envID))
+		envsByMcp := listEnvs(ctx, t, client, &teamsv1.ListEnvsRequest{McpId: mcpID})
+		require.True(t, hasID(envsByMcp, envMcpID))
+		envsByHook := listEnvs(ctx, t, client, &teamsv1.ListEnvsRequest{HookId: hookID})
+		require.True(t, hasID(envsByHook, envHookID))
 
+		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envHookID})
+		require.NoError(t, err)
+		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envMcpID})
+		require.NoError(t, err)
 		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envID})
+		require.NoError(t, err)
+		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		require.NoError(t, err)
+		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
 		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
@@ -279,6 +330,27 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
+		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+			AgentId:     agentID,
+			Image:       "mcp-image:latest",
+			Command:     "mcp --init",
+			Resources:   baseResources(),
+			Description: "Init mcp " + testID,
+		})
+		require.NoError(t, err)
+		mcpID := mcpResp.Mcp.Meta.Id
+
+		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+			AgentId:     agentID,
+			Event:       "init_event",
+			Function:    "initHandler",
+			Image:       "hook-image:latest",
+			Resources:   baseResources(),
+			Description: "Init hook " + testID,
+		})
+		require.NoError(t, err)
+		hookID := hookResp.Hook.Meta.Id
+
 		initResp, err := client.CreateInitScript(ctx, &teamsv1.CreateInitScriptRequest{
 			Script:      "echo init",
 			Description: "Init script " + testID,
@@ -287,6 +359,22 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		initID := initResp.InitScript.Meta.Id
 
+		mcpInitResp, err := client.CreateInitScript(ctx, &teamsv1.CreateInitScriptRequest{
+			Script:      "echo mcp init",
+			Description: "Init script mcp " + testID,
+			Target:      &teamsv1.CreateInitScriptRequest_McpId{McpId: mcpID},
+		})
+		require.NoError(t, err)
+		mcpInitID := mcpInitResp.InitScript.Meta.Id
+
+		hookInitResp, err := client.CreateInitScript(ctx, &teamsv1.CreateInitScriptRequest{
+			Script:      "echo hook init",
+			Description: "Init script hook " + testID,
+			Target:      &teamsv1.CreateInitScriptRequest_HookId{HookId: hookID},
+		})
+		require.NoError(t, err)
+		hookInitID := hookInitResp.InitScript.Meta.Id
+
 		updatedInitResp, err := client.UpdateInitScript(ctx, &teamsv1.UpdateInitScriptRequest{
 			Id:          initID,
 			Description: proto.String("Init script updated " + testID),
@@ -294,10 +382,22 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "Init script updated "+testID, updatedInitResp.InitScript.Description)
 
-		scripts := listInitScriptsByAgent(ctx, t, client, agentID)
-		require.True(t, hasInitScriptID(scripts, initID))
+		scriptsByAgent := listInitScripts(ctx, t, client, &teamsv1.ListInitScriptsRequest{AgentId: agentID})
+		require.True(t, hasID(scriptsByAgent, initID))
+		scriptsByMcp := listInitScripts(ctx, t, client, &teamsv1.ListInitScriptsRequest{McpId: mcpID})
+		require.True(t, hasID(scriptsByMcp, mcpInitID))
+		scriptsByHook := listInitScripts(ctx, t, client, &teamsv1.ListInitScriptsRequest{HookId: hookID})
+		require.True(t, hasID(scriptsByHook, hookInitID))
 
+		_, err = client.DeleteInitScript(ctx, &teamsv1.DeleteInitScriptRequest{Id: hookInitID})
+		require.NoError(t, err)
+		_, err = client.DeleteInitScript(ctx, &teamsv1.DeleteInitScriptRequest{Id: mcpInitID})
+		require.NoError(t, err)
 		_, err = client.DeleteInitScript(ctx, &teamsv1.DeleteInitScriptRequest{Id: initID})
+		require.NoError(t, err)
+		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		require.NoError(t, err)
+		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
 		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
@@ -317,6 +417,27 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
+		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+			AgentId:     agentID,
+			Image:       "mcp-image:latest",
+			Command:     "mcp --attach",
+			Resources:   baseResources(),
+			Description: "Attachment mcp " + testID,
+		})
+		require.NoError(t, err)
+		mcpID := mcpResp.Mcp.Meta.Id
+
+		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+			AgentId:     agentID,
+			Event:       "attach_event",
+			Function:    "attachHandler",
+			Image:       "hook-image:latest",
+			Resources:   baseResources(),
+			Description: "Attachment hook " + testID,
+		})
+		require.NoError(t, err)
+		hookID := hookResp.Hook.Meta.Id
+
 		volumeResp, err := client.CreateVolume(ctx, &teamsv1.CreateVolumeRequest{
 			Persistent:  false,
 			MountPath:   "/vol/" + testID,
@@ -333,6 +454,20 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		attachmentID := attachmentResp.VolumeAttachment.Meta.Id
 
+		mcpAttachmentResp, err := client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
+			VolumeId: volumeID,
+			Target:   &teamsv1.CreateVolumeAttachmentRequest_McpId{McpId: mcpID},
+		})
+		require.NoError(t, err)
+		mcpAttachmentID := mcpAttachmentResp.VolumeAttachment.Meta.Id
+
+		hookAttachmentResp, err := client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
+			VolumeId: volumeID,
+			Target:   &teamsv1.CreateVolumeAttachmentRequest_HookId{HookId: hookID},
+		})
+		require.NoError(t, err)
+		hookAttachmentID := hookAttachmentResp.VolumeAttachment.Meta.Id
+
 		_, err = client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
 			VolumeId: volumeID,
 			Target:   &teamsv1.CreateVolumeAttachmentRequest_AgentId{AgentId: agentID},
@@ -344,12 +479,32 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.Equal(t, volumeID, getAttachmentResp.VolumeAttachment.VolumeId)
 		require.Equal(t, agentID, getAttachmentResp.VolumeAttachment.GetAgentId())
 
-		attachments := listVolumeAttachmentsByVolume(ctx, t, client, volumeID)
-		require.True(t, hasVolumeAttachmentID(attachments, attachmentID))
+		getMcpAttachmentResp, err := client.GetVolumeAttachment(ctx, &teamsv1.GetVolumeAttachmentRequest{Id: mcpAttachmentID})
+		require.NoError(t, err)
+		require.Equal(t, volumeID, getMcpAttachmentResp.VolumeAttachment.VolumeId)
+		require.Equal(t, mcpID, getMcpAttachmentResp.VolumeAttachment.GetMcpId())
 
+		getHookAttachmentResp, err := client.GetVolumeAttachment(ctx, &teamsv1.GetVolumeAttachmentRequest{Id: hookAttachmentID})
+		require.NoError(t, err)
+		require.Equal(t, volumeID, getHookAttachmentResp.VolumeAttachment.VolumeId)
+		require.Equal(t, hookID, getHookAttachmentResp.VolumeAttachment.GetHookId())
+
+		attachments := listVolumeAttachments(ctx, t, client, &teamsv1.ListVolumeAttachmentsRequest{VolumeId: volumeID})
+		require.True(t, hasID(attachments, attachmentID))
+		require.True(t, hasID(attachments, mcpAttachmentID))
+		require.True(t, hasID(attachments, hookAttachmentID))
+
+		_, err = client.DeleteVolumeAttachment(ctx, &teamsv1.DeleteVolumeAttachmentRequest{Id: hookAttachmentID})
+		require.NoError(t, err)
+		_, err = client.DeleteVolumeAttachment(ctx, &teamsv1.DeleteVolumeAttachmentRequest{Id: mcpAttachmentID})
+		require.NoError(t, err)
 		_, err = client.DeleteVolumeAttachment(ctx, &teamsv1.DeleteVolumeAttachmentRequest{Id: attachmentID})
 		require.NoError(t, err)
 		_, err = client.DeleteVolume(ctx, &teamsv1.DeleteVolumeRequest{Id: volumeID})
+		require.NoError(t, err)
+		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		require.NoError(t, err)
+		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
 		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
@@ -361,6 +516,15 @@ func TestTeamsServiceE2E(t *testing.T) {
 
 		_, err = client.UpdateAgent(ctx, &teamsv1.UpdateAgentRequest{Id: uuid.NewString()})
 		requireStatusCode(t, err, codes.InvalidArgument)
+
+		_, err = client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+			AgentId:     uuid.NewString(),
+			Image:       "mcp-image:latest",
+			Command:     "mcp",
+			Resources:   baseResources(),
+			Description: "negative",
+		})
+		requireStatusCode(t, err, codes.FailedPrecondition)
 
 		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
 			Name:          "Negative Agent",
@@ -421,208 +585,122 @@ func baseResources() *teamsv1.ComputeResources {
 	}
 }
 
-func listAgents(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient) []*teamsv1.Agent {
+type metaGetter interface {
+	GetMeta() *teamsv1.EntityMeta
+}
+
+func listPaged[T any](t *testing.T, resource string, fetch func(pageToken string) ([]T, string, error)) []T {
 	t.Helper()
-	var agents []*teamsv1.Agent
+	var items []T
 	pageToken := ""
 	for i := 0; i < 20; i++ {
-		resp, err := client.ListAgents(ctx, &teamsv1.ListAgentsRequest{PageSize: listPageSize, PageToken: pageToken})
+		pageItems, nextPageToken, err := fetch(pageToken)
 		require.NoError(t, err)
-		agents = append(agents, resp.Agents...)
-		if resp.NextPageToken == "" {
-			return agents
+		items = append(items, pageItems...)
+		if nextPageToken == "" {
+			return items
 		}
-		pageToken = resp.NextPageToken
+		pageToken = nextPageToken
 	}
-	t.Fatalf("agent pagination exceeded")
+	t.Fatalf("%s pagination exceeded", resource)
 	return nil
+}
+
+func listAgents(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient) []*teamsv1.Agent {
+	return listPaged(t, "agent", func(pageToken string) ([]*teamsv1.Agent, string, error) {
+		resp, err := client.ListAgents(ctx, &teamsv1.ListAgentsRequest{PageSize: listPageSize, PageToken: pageToken})
+		if err != nil {
+			return nil, "", err
+		}
+		return resp.Agents, resp.NextPageToken, nil
+	})
 }
 
 func listVolumes(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient) []*teamsv1.Volume {
-	t.Helper()
-	var volumes []*teamsv1.Volume
-	pageToken := ""
-	for i := 0; i < 20; i++ {
+	return listPaged(t, "volume", func(pageToken string) ([]*teamsv1.Volume, string, error) {
 		resp, err := client.ListVolumes(ctx, &teamsv1.ListVolumesRequest{PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		volumes = append(volumes, resp.Volumes...)
-		if resp.NextPageToken == "" {
-			return volumes
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("volume pagination exceeded")
-	return nil
+		return resp.Volumes, resp.NextPageToken, nil
+	})
 }
 
 func listMcpsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Mcp {
-	t.Helper()
-	var mcps []*teamsv1.Mcp
-	pageToken := ""
-	for i := 0; i < 20; i++ {
+	return listPaged(t, "mcp", func(pageToken string) ([]*teamsv1.Mcp, string, error) {
 		resp, err := client.ListMcps(ctx, &teamsv1.ListMcpsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		mcps = append(mcps, resp.Mcps...)
-		if resp.NextPageToken == "" {
-			return mcps
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("mcp pagination exceeded")
-	return nil
+		return resp.Mcps, resp.NextPageToken, nil
+	})
 }
 
 func listSkillsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Skill {
-	t.Helper()
-	var skills []*teamsv1.Skill
-	pageToken := ""
-	for i := 0; i < 20; i++ {
+	return listPaged(t, "skill", func(pageToken string) ([]*teamsv1.Skill, string, error) {
 		resp, err := client.ListSkills(ctx, &teamsv1.ListSkillsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		skills = append(skills, resp.Skills...)
-		if resp.NextPageToken == "" {
-			return skills
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("skill pagination exceeded")
-	return nil
+		return resp.Skills, resp.NextPageToken, nil
+	})
 }
 
 func listHooksByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Hook {
-	t.Helper()
-	var hooks []*teamsv1.Hook
-	pageToken := ""
-	for i := 0; i < 20; i++ {
+	return listPaged(t, "hook", func(pageToken string) ([]*teamsv1.Hook, string, error) {
 		resp, err := client.ListHooks(ctx, &teamsv1.ListHooksRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		hooks = append(hooks, resp.Hooks...)
-		if resp.NextPageToken == "" {
-			return hooks
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("hook pagination exceeded")
-	return nil
+		return resp.Hooks, resp.NextPageToken, nil
+	})
 }
 
-func listEnvsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Env {
-	t.Helper()
-	var envs []*teamsv1.Env
-	pageToken := ""
-	for i := 0; i < 20; i++ {
-		resp, err := client.ListEnvs(ctx, &teamsv1.ListEnvsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		envs = append(envs, resp.Envs...)
-		if resp.NextPageToken == "" {
-			return envs
+func listEnvs(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, request *teamsv1.ListEnvsRequest) []*teamsv1.Env {
+	baseRequest := *request
+	return listPaged(t, "env", func(pageToken string) ([]*teamsv1.Env, string, error) {
+		req := baseRequest
+		req.PageSize = listPageSize
+		req.PageToken = pageToken
+		resp, err := client.ListEnvs(ctx, &req)
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("env pagination exceeded")
-	return nil
+		return resp.Envs, resp.NextPageToken, nil
+	})
 }
 
-func listInitScriptsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.InitScript {
-	t.Helper()
-	var scripts []*teamsv1.InitScript
-	pageToken := ""
-	for i := 0; i < 20; i++ {
-		resp, err := client.ListInitScripts(ctx, &teamsv1.ListInitScriptsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		scripts = append(scripts, resp.InitScripts...)
-		if resp.NextPageToken == "" {
-			return scripts
+func listInitScripts(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, request *teamsv1.ListInitScriptsRequest) []*teamsv1.InitScript {
+	baseRequest := *request
+	return listPaged(t, "init script", func(pageToken string) ([]*teamsv1.InitScript, string, error) {
+		req := baseRequest
+		req.PageSize = listPageSize
+		req.PageToken = pageToken
+		resp, err := client.ListInitScripts(ctx, &req)
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("init script pagination exceeded")
-	return nil
+		return resp.InitScripts, resp.NextPageToken, nil
+	})
 }
 
-func listVolumeAttachmentsByVolume(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, volumeID string) []*teamsv1.VolumeAttachment {
-	t.Helper()
-	var attachments []*teamsv1.VolumeAttachment
-	pageToken := ""
-	for i := 0; i < 20; i++ {
-		resp, err := client.ListVolumeAttachments(ctx, &teamsv1.ListVolumeAttachmentsRequest{VolumeId: volumeID, PageSize: listPageSize, PageToken: pageToken})
-		require.NoError(t, err)
-		attachments = append(attachments, resp.VolumeAttachments...)
-		if resp.NextPageToken == "" {
-			return attachments
+func listVolumeAttachments(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, request *teamsv1.ListVolumeAttachmentsRequest) []*teamsv1.VolumeAttachment {
+	baseRequest := *request
+	return listPaged(t, "volume attachment", func(pageToken string) ([]*teamsv1.VolumeAttachment, string, error) {
+		req := baseRequest
+		req.PageSize = listPageSize
+		req.PageToken = pageToken
+		resp, err := client.ListVolumeAttachments(ctx, &req)
+		if err != nil {
+			return nil, "", err
 		}
-		pageToken = resp.NextPageToken
-	}
-	t.Fatalf("volume attachment pagination exceeded")
-	return nil
+		return resp.VolumeAttachments, resp.NextPageToken, nil
+	})
 }
 
-func hasAgentID(agents []*teamsv1.Agent, id string) bool {
-	for _, agent := range agents {
-		if agent.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasVolumeID(volumes []*teamsv1.Volume, id string) bool {
-	for _, volume := range volumes {
-		if volume.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasMcpID(mcps []*teamsv1.Mcp, id string) bool {
-	for _, mcp := range mcps {
-		if mcp.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasSkillID(skills []*teamsv1.Skill, id string) bool {
-	for _, skill := range skills {
-		if skill.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasHookID(hooks []*teamsv1.Hook, id string) bool {
-	for _, hook := range hooks {
-		if hook.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasEnvID(envs []*teamsv1.Env, id string) bool {
-	for _, env := range envs {
-		if env.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasInitScriptID(scripts []*teamsv1.InitScript, id string) bool {
-	for _, script := range scripts {
-		if script.GetMeta().GetId() == id {
-			return true
-		}
-	}
-	return false
-}
-
-func hasVolumeAttachmentID(attachments []*teamsv1.VolumeAttachment, id string) bool {
-	for _, attachment := range attachments {
-		if attachment.GetMeta().GetId() == id {
+func hasID[T metaGetter](items []T, id string) bool {
+	for _, item := range items {
+		if item.GetMeta().GetId() == id {
 			return true
 		}
 	}
