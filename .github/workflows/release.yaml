@@ -10,8 +10,8 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/agynio/teams
-  CHART_DIR: charts/teams
+  IMAGE_NAME: ghcr.io/agynio/agents
+  CHART_DIR: charts/agents
   CHART_REGISTRY: oci://ghcr.io/agynio/charts
 
 jobs:
@@ -60,8 +60,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=teams
-          cache-to: type=gha,scope=teams,mode=max
+          cache-from: type=gha,scope=agents
+          cache-to: type=gha,scope=agents,mode=max
 
       - name: Verify multi-arch manifest
         run: |

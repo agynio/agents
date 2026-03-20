@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	teamsv1 "github.com/agynio/teams/.gen/go/agynio/api/teams/v1"
+	agentsv1 "github.com/agynio/teams/.gen/go/agynio/api/agents/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
@@ -22,7 +22,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("teams-service: %v", err)
+		log.Fatalf("agents-service: %v", err)
 	}
 }
 
@@ -50,7 +50,7 @@ func run() error {
 	}
 
 	grpcServer := grpc.NewServer()
-	teamsv1.RegisterTeamsServiceServer(grpcServer, server.New(store.New(pool)))
+	agentsv1.RegisterAgentsServiceServer(grpcServer, server.New(store.New(pool)))
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddress)
 	if err != nil {
@@ -62,7 +62,7 @@ func run() error {
 		grpcServer.GracefulStop()
 	}()
 
-	log.Printf("TeamsService listening on %s", cfg.GRPCAddress)
+	log.Printf("AgentsService listening on %s", cfg.GRPCAddress)
 
 	if err := grpcServer.Serve(lis); err != nil {
 		if errors.Is(err, grpc.ErrServerStopped) {

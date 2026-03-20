@@ -1,33 +1,33 @@
 version: v2beta1
 
 vars:
-  TEAMS_NAMESPACE: platform
+  AGENTS_NAMESPACE: platform
   E2E_IMAGE: ghcr.io/agynio/devcontainer-go:1
 
 functions:
   disable_argocd_sync: |-
-    if kubectl get application teams -n argocd >/dev/null 2>&1; then
-      echo "Disabling ArgoCD auto-sync for teams..."
-      kubectl patch application teams -n argocd \
+    if kubectl get application agents -n argocd >/dev/null 2>&1; then
+      echo "Disabling ArgoCD auto-sync for agents..."
+      kubectl patch application agents -n argocd \
         --type merge \
         -p '{"spec":{"syncPolicy":{"automated":null}}}'
       echo "ArgoCD auto-sync disabled."
     else
-      echo "WARNING: ArgoCD Application 'teams' not found in argocd namespace."
+      echo "WARNING: ArgoCD Application 'agents' not found in argocd namespace."
     fi
   restore_argocd_sync: &restore_argocd_sync |-
-    if kubectl get application teams -n argocd >/dev/null 2>&1; then
-      echo "Re-enabling ArgoCD auto-sync for teams..."
-      kubectl patch application teams -n argocd \
+    if kubectl get application agents -n argocd >/dev/null 2>&1; then
+      echo "Re-enabling ArgoCD auto-sync for agents..."
+      kubectl patch application agents -n argocd \
         --type merge \
         -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
       echo "ArgoCD auto-sync restored."
     else
-      echo "WARNING: ArgoCD Application 'teams' not found in argocd namespace."
+      echo "WARNING: ArgoCD Application 'agents' not found in argocd namespace."
     fi
   patch_deployment: |-
-    echo "Patching teams deployment for DevSpace..."
-    kubectl patch deployment teams-teams -n ${TEAMS_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+    echo "Patching agents deployment for DevSpace..."
+    kubectl patch deployment agents-agents -n ${AGENTS_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
     spec:
       template:
         spec:
@@ -39,7 +39,7 @@ functions:
             - name: data
               emptyDir: {}
           containers:
-            - name: teams
+            - name: agents
               image: ghcr.io/agynio/devcontainer-go:1 # keep in sync with E2E_IMAGE
               workingDir: /opt/app/data
               command:
@@ -52,8 +52,8 @@ functions:
                     sleep 1; elapsed=$((elapsed + 1))
                     [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
                   done
-                  buf generate buf.build/agynio/api --path agynio/api/teams/v1
-                  exec go run ./cmd/teams-service
+                  buf generate buf.build/agynio/api --path agynio/api/agents/v1
+                  exec go run ./cmd/agents-service
               volumeMounts:
                 - name: data
                   mountPath: /opt/app/data
@@ -79,7 +79,7 @@ functions:
 
 deployments:
   e2e-runner:
-    namespace: ${TEAMS_NAMESPACE}
+    namespace: ${AGENTS_NAMESPACE}
     helm:
       chart:
         name: component-chart
@@ -88,10 +88,10 @@ deployments:
         containers:
           - image: ${E2E_IMAGE}
             env:
-              - name: TEAMS_ADDR
-                value: "teams:50051"
+              - name: AGENTS_ADDR
+                value: "agents:50051"
         labels:
-          app.kubernetes.io/name: teams-e2e
+          app.kubernetes.io/name: agents-e2e
 
 commands:
   test:e2e: |-
@@ -107,24 +107,24 @@ pipelines:
       disable_argocd_sync
       patch_deployment
       if [ "$(get_flag "watch")" == "true" ]; then
-        start_dev --disable-pod-replace teams
+        start_dev --disable-pod-replace agents
       else
-        start_dev --disable-pod-replace teams
-        echo "Waiting for teams to be healthy on :50051..."
+        start_dev --disable-pod-replace agents
+        echo "Waiting for agents to be healthy on :50051..."
         healthy=false
         for i in $(seq 1 60); do
-          if exec_container --label-selector=app.kubernetes.io/name=teams -n ${TEAMS_NAMESPACE} -- bash -c 'nc -z localhost 50051 >/dev/null 2>&1 || (echo > /dev/tcp/localhost/50051) >/dev/null 2>&1'; then
+          if exec_container --label-selector=app.kubernetes.io/name=agents -n ${AGENTS_NAMESPACE} -- bash -c 'nc -z localhost 50051 >/dev/null 2>&1 || (echo > /dev/tcp/localhost/50051) >/dev/null 2>&1'; then
             healthy=true
             break
           fi
           sleep 2
         done
         if [ "$healthy" != "true" ]; then
-          echo "ERROR: Teams did not become healthy within 120s" >&2
+          echo "ERROR: Agents did not become healthy within 120s" >&2
           exit 1
         fi
         echo "Dev environment ready. Stopping dev session."
-        stop_dev teams
+        stop_dev agents
       fi
 
   test:e2e:
@@ -133,9 +133,9 @@ pipelines:
       start_dev e2e-runner &
       sleep 5
       exec_container \
-        --label-selector "app.kubernetes.io/name=teams-e2e" \
-        -n ${TEAMS_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --path agynio/api/teams/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
+        --label-selector "app.kubernetes.io/name=agents-e2e" \
+        -n ${AGENTS_NAMESPACE} \
+        -- bash -c 'cd /opt/app/data && buf generate buf.build/agynio/api --path agynio/api/agents/v1 && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       stop_dev e2e-runner
       purge_deployments e2e-runner
@@ -144,21 +144,21 @@ pipelines:
 hooks:
   - name: restore-argocd-auto-sync
     events:
-      - after:dev:teams
+      - after:dev:agents
     command: bash
     args:
       - -c
       - *restore_argocd_sync
 
 dev:
-  teams:
-    namespace: ${TEAMS_NAMESPACE}
+  agents:
+    namespace: ${AGENTS_NAMESPACE}
     labelSelector:
-      app.kubernetes.io/name: teams
-      app.kubernetes.io/instance: teams
+      app.kubernetes.io/name: agents
+      app.kubernetes.io/instance: agents
     containers:
-      teams:
-        container: teams
+      agents:
+        container: agents
         sync:
           - path: ./:/opt/app/data
             excludePaths:
@@ -183,9 +183,9 @@ dev:
       - port: "50051"
 
   e2e-runner:
-    namespace: ${TEAMS_NAMESPACE}
+    namespace: ${AGENTS_NAMESPACE}
     labelSelector:
-      app.kubernetes.io/name: teams-e2e
+      app.kubernetes.io/name: agents-e2e
     command: ["sleep", "infinity"]
     workingDir: /opt/app/data
     sync:

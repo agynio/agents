@@ -1,8 +1,8 @@
-# Teams Service
+# Agents Service
 
-The Teams service manages team resources such as agents, tools, workspaces, MCP servers, memory buckets, variables, and attachments.
+The Agents service manages agent resources such as agents, tools, workspaces, MCP servers, memory buckets, variables, and attachments.
 
-Architecture: [Teams](https://github.com/agynio/architecture/blob/main/architecture/teams.md)
+Architecture: [Agents](https://github.com/agynio/architecture/blob/main/architecture/agents.md)
 
 ## Local Development
 

@@ -7,7 +7,7 @@ global:
 
 image:
   registry: ""
-  repository: ghcr.io/agynio/teams
+  repository: ghcr.io/agynio/agents
   tag: ""
   pullPolicy: IfNotPresent
   pullSecrets: []

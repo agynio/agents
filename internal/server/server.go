@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	teamsv1 "github.com/agynio/teams/.gen/go/agynio/api/teams/v1"
+	agentsv1 "github.com/agynio/teams/.gen/go/agynio/api/agents/v1"
 	"github.com/agynio/teams/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -13,7 +13,7 @@ import (
 )
 
 type Server struct {
-	teamsv1.UnimplementedTeamsServiceServer
+	agentsv1.UnimplementedAgentsServiceServer
 	store *store.Store
 }
 
@@ -21,7 +21,7 @@ func New(store *store.Store) *Server {
 	return &Server{store: store}
 }
 
-func (s *Server) CreateAgent(ctx context.Context, req *teamsv1.CreateAgentRequest) (*teamsv1.CreateAgentResponse, error) {
+func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentRequest) (*agentsv1.CreateAgentResponse, error) {
 	modelID, err := parseUUID(req.GetModel())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
@@ -39,10 +39,10 @@ func (s *Server) CreateAgent(ctx context.Context, req *teamsv1.CreateAgentReques
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateAgentResponse{Agent: toProtoAgent(agent)}, nil
+	return &agentsv1.CreateAgentResponse{Agent: toProtoAgent(agent)}, nil
 }
 
-func (s *Server) GetAgent(ctx context.Context, req *teamsv1.GetAgentRequest) (*teamsv1.GetAgentResponse, error) {
+func (s *Server) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest) (*agentsv1.GetAgentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -51,10 +51,10 @@ func (s *Server) GetAgent(ctx context.Context, req *teamsv1.GetAgentRequest) (*t
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetAgentResponse{Agent: toProtoAgent(agent)}, nil
+	return &agentsv1.GetAgentResponse{Agent: toProtoAgent(agent)}, nil
 }
 
-func (s *Server) UpdateAgent(ctx context.Context, req *teamsv1.UpdateAgentRequest) (*teamsv1.UpdateAgentResponse, error) {
+func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentRequest) (*agentsv1.UpdateAgentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -100,10 +100,10 @@ func (s *Server) UpdateAgent(ctx context.Context, req *teamsv1.UpdateAgentReques
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateAgentResponse{Agent: toProtoAgent(agent)}, nil
+	return &agentsv1.UpdateAgentResponse{Agent: toProtoAgent(agent)}, nil
 }
 
-func (s *Server) DeleteAgent(ctx context.Context, req *teamsv1.DeleteAgentRequest) (*teamsv1.DeleteAgentResponse, error) {
+func (s *Server) DeleteAgent(ctx context.Context, req *agentsv1.DeleteAgentRequest) (*agentsv1.DeleteAgentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -111,10 +111,10 @@ func (s *Server) DeleteAgent(ctx context.Context, req *teamsv1.DeleteAgentReques
 	if err := s.store.DeleteAgent(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteAgentResponse{}, nil
+	return &agentsv1.DeleteAgentResponse{}, nil
 }
 
-func (s *Server) ListAgents(ctx context.Context, req *teamsv1.ListAgentsRequest) (*teamsv1.ListAgentsResponse, error) {
+func (s *Server) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest) (*agentsv1.ListAgentsResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -124,10 +124,10 @@ func (s *Server) ListAgents(ctx context.Context, req *teamsv1.ListAgentsRequest)
 		return nil, toStatusError(err)
 	}
 	agents, nextToken := mapListResult(result.Agents, result.NextCursor, toProtoAgent)
-	return &teamsv1.ListAgentsResponse{Agents: agents, NextPageToken: nextToken}, nil
+	return &agentsv1.ListAgentsResponse{Agents: agents, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateVolume(ctx context.Context, req *teamsv1.CreateVolumeRequest) (*teamsv1.CreateVolumeResponse, error) {
+func (s *Server) CreateVolume(ctx context.Context, req *agentsv1.CreateVolumeRequest) (*agentsv1.CreateVolumeResponse, error) {
 	volume, err := s.store.CreateVolume(ctx, store.VolumeInput{
 		Persistent:  req.GetPersistent(),
 		MountPath:   req.GetMountPath(),
@@ -137,10 +137,10 @@ func (s *Server) CreateVolume(ctx context.Context, req *teamsv1.CreateVolumeRequ
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateVolumeResponse{Volume: toProtoVolume(volume)}, nil
+	return &agentsv1.CreateVolumeResponse{Volume: toProtoVolume(volume)}, nil
 }
 
-func (s *Server) GetVolume(ctx context.Context, req *teamsv1.GetVolumeRequest) (*teamsv1.GetVolumeResponse, error) {
+func (s *Server) GetVolume(ctx context.Context, req *agentsv1.GetVolumeRequest) (*agentsv1.GetVolumeResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -149,10 +149,10 @@ func (s *Server) GetVolume(ctx context.Context, req *teamsv1.GetVolumeRequest) (
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetVolumeResponse{Volume: toProtoVolume(volume)}, nil
+	return &agentsv1.GetVolumeResponse{Volume: toProtoVolume(volume)}, nil
 }
 
-func (s *Server) UpdateVolume(ctx context.Context, req *teamsv1.UpdateVolumeRequest) (*teamsv1.UpdateVolumeResponse, error) {
+func (s *Server) UpdateVolume(ctx context.Context, req *agentsv1.UpdateVolumeRequest) (*agentsv1.UpdateVolumeResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -183,10 +183,10 @@ func (s *Server) UpdateVolume(ctx context.Context, req *teamsv1.UpdateVolumeRequ
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateVolumeResponse{Volume: toProtoVolume(volume)}, nil
+	return &agentsv1.UpdateVolumeResponse{Volume: toProtoVolume(volume)}, nil
 }
 
-func (s *Server) DeleteVolume(ctx context.Context, req *teamsv1.DeleteVolumeRequest) (*teamsv1.DeleteVolumeResponse, error) {
+func (s *Server) DeleteVolume(ctx context.Context, req *agentsv1.DeleteVolumeRequest) (*agentsv1.DeleteVolumeResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -194,10 +194,10 @@ func (s *Server) DeleteVolume(ctx context.Context, req *teamsv1.DeleteVolumeRequ
 	if err := s.store.DeleteVolume(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteVolumeResponse{}, nil
+	return &agentsv1.DeleteVolumeResponse{}, nil
 }
 
-func (s *Server) ListVolumes(ctx context.Context, req *teamsv1.ListVolumesRequest) (*teamsv1.ListVolumesResponse, error) {
+func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesRequest) (*agentsv1.ListVolumesResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -207,10 +207,10 @@ func (s *Server) ListVolumes(ctx context.Context, req *teamsv1.ListVolumesReques
 		return nil, toStatusError(err)
 	}
 	volumes, nextToken := mapListResult(result.Volumes, result.NextCursor, toProtoVolume)
-	return &teamsv1.ListVolumesResponse{Volumes: volumes, NextPageToken: nextToken}, nil
+	return &agentsv1.ListVolumesResponse{Volumes: volumes, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateVolumeAttachment(ctx context.Context, req *teamsv1.CreateVolumeAttachmentRequest) (*teamsv1.CreateVolumeAttachmentResponse, error) {
+func (s *Server) CreateVolumeAttachment(ctx context.Context, req *agentsv1.CreateVolumeAttachmentRequest) (*agentsv1.CreateVolumeAttachmentResponse, error) {
 	volumeID, err := parseUUID(req.GetVolumeId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "volume_id: %v", err)
@@ -218,19 +218,19 @@ func (s *Server) CreateVolumeAttachment(ctx context.Context, req *teamsv1.Create
 
 	input := store.VolumeAttachmentInput{VolumeID: volumeID}
 	switch target := req.GetTarget().(type) {
-	case *teamsv1.CreateVolumeAttachmentRequest_AgentId:
+	case *agentsv1.CreateVolumeAttachmentRequest_AgentId:
 		id, err := parseUUID(target.AgentId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
 		input.AgentID = &id
-	case *teamsv1.CreateVolumeAttachmentRequest_McpId:
+	case *agentsv1.CreateVolumeAttachmentRequest_McpId:
 		id, err := parseUUID(target.McpId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *teamsv1.CreateVolumeAttachmentRequest_HookId:
+	case *agentsv1.CreateVolumeAttachmentRequest_HookId:
 		id, err := parseUUID(target.HookId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
@@ -244,10 +244,10 @@ func (s *Server) CreateVolumeAttachment(ctx context.Context, req *teamsv1.Create
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
+	return &agentsv1.CreateVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
 }
 
-func (s *Server) GetVolumeAttachment(ctx context.Context, req *teamsv1.GetVolumeAttachmentRequest) (*teamsv1.GetVolumeAttachmentResponse, error) {
+func (s *Server) GetVolumeAttachment(ctx context.Context, req *agentsv1.GetVolumeAttachmentRequest) (*agentsv1.GetVolumeAttachmentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -256,10 +256,10 @@ func (s *Server) GetVolumeAttachment(ctx context.Context, req *teamsv1.GetVolume
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
+	return &agentsv1.GetVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
 }
 
-func (s *Server) DeleteVolumeAttachment(ctx context.Context, req *teamsv1.DeleteVolumeAttachmentRequest) (*teamsv1.DeleteVolumeAttachmentResponse, error) {
+func (s *Server) DeleteVolumeAttachment(ctx context.Context, req *agentsv1.DeleteVolumeAttachmentRequest) (*agentsv1.DeleteVolumeAttachmentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -267,10 +267,10 @@ func (s *Server) DeleteVolumeAttachment(ctx context.Context, req *teamsv1.Delete
 	if err := s.store.DeleteVolumeAttachment(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteVolumeAttachmentResponse{}, nil
+	return &agentsv1.DeleteVolumeAttachmentResponse{}, nil
 }
 
-func (s *Server) ListVolumeAttachments(ctx context.Context, req *teamsv1.ListVolumeAttachmentsRequest) (*teamsv1.ListVolumeAttachmentsResponse, error) {
+func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest) (*agentsv1.ListVolumeAttachmentsResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -311,10 +311,10 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *teamsv1.ListVol
 		return nil, toStatusError(err)
 	}
 	attachments, nextToken := mapListResult(result.VolumeAttachments, result.NextCursor, toProtoVolumeAttachment)
-	return &teamsv1.ListVolumeAttachmentsResponse{VolumeAttachments: attachments, NextPageToken: nextToken}, nil
+	return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: attachments, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateMcp(ctx context.Context, req *teamsv1.CreateMcpRequest) (*teamsv1.CreateMcpResponse, error) {
+func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) (*agentsv1.CreateMcpResponse, error) {
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
@@ -330,10 +330,10 @@ func (s *Server) CreateMcp(ctx context.Context, req *teamsv1.CreateMcpRequest) (
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateMcpResponse{Mcp: toProtoMcp(mcp)}, nil
+	return &agentsv1.CreateMcpResponse{Mcp: toProtoMcp(mcp)}, nil
 }
 
-func (s *Server) GetMcp(ctx context.Context, req *teamsv1.GetMcpRequest) (*teamsv1.GetMcpResponse, error) {
+func (s *Server) GetMcp(ctx context.Context, req *agentsv1.GetMcpRequest) (*agentsv1.GetMcpResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -342,10 +342,10 @@ func (s *Server) GetMcp(ctx context.Context, req *teamsv1.GetMcpRequest) (*teams
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetMcpResponse{Mcp: toProtoMcp(mcp)}, nil
+	return &agentsv1.GetMcpResponse{Mcp: toProtoMcp(mcp)}, nil
 }
 
-func (s *Server) UpdateMcp(ctx context.Context, req *teamsv1.UpdateMcpRequest) (*teamsv1.UpdateMcpResponse, error) {
+func (s *Server) UpdateMcp(ctx context.Context, req *agentsv1.UpdateMcpRequest) (*agentsv1.UpdateMcpResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -376,10 +376,10 @@ func (s *Server) UpdateMcp(ctx context.Context, req *teamsv1.UpdateMcpRequest) (
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateMcpResponse{Mcp: toProtoMcp(mcp)}, nil
+	return &agentsv1.UpdateMcpResponse{Mcp: toProtoMcp(mcp)}, nil
 }
 
-func (s *Server) DeleteMcp(ctx context.Context, req *teamsv1.DeleteMcpRequest) (*teamsv1.DeleteMcpResponse, error) {
+func (s *Server) DeleteMcp(ctx context.Context, req *agentsv1.DeleteMcpRequest) (*agentsv1.DeleteMcpResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -387,10 +387,10 @@ func (s *Server) DeleteMcp(ctx context.Context, req *teamsv1.DeleteMcpRequest) (
 	if err := s.store.DeleteMcp(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteMcpResponse{}, nil
+	return &agentsv1.DeleteMcpResponse{}, nil
 }
 
-func (s *Server) ListMcps(ctx context.Context, req *teamsv1.ListMcpsRequest) (*teamsv1.ListMcpsResponse, error) {
+func (s *Server) ListMcps(ctx context.Context, req *agentsv1.ListMcpsRequest) (*agentsv1.ListMcpsResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -410,10 +410,10 @@ func (s *Server) ListMcps(ctx context.Context, req *teamsv1.ListMcpsRequest) (*t
 		return nil, toStatusError(err)
 	}
 	mcps, nextToken := mapListResult(result.Mcps, result.NextCursor, toProtoMcp)
-	return &teamsv1.ListMcpsResponse{Mcps: mcps, NextPageToken: nextToken}, nil
+	return &agentsv1.ListMcpsResponse{Mcps: mcps, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateSkill(ctx context.Context, req *teamsv1.CreateSkillRequest) (*teamsv1.CreateSkillResponse, error) {
+func (s *Server) CreateSkill(ctx context.Context, req *agentsv1.CreateSkillRequest) (*agentsv1.CreateSkillResponse, error) {
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
@@ -427,10 +427,10 @@ func (s *Server) CreateSkill(ctx context.Context, req *teamsv1.CreateSkillReques
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateSkillResponse{Skill: toProtoSkill(skill)}, nil
+	return &agentsv1.CreateSkillResponse{Skill: toProtoSkill(skill)}, nil
 }
 
-func (s *Server) GetSkill(ctx context.Context, req *teamsv1.GetSkillRequest) (*teamsv1.GetSkillResponse, error) {
+func (s *Server) GetSkill(ctx context.Context, req *agentsv1.GetSkillRequest) (*agentsv1.GetSkillResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -439,10 +439,10 @@ func (s *Server) GetSkill(ctx context.Context, req *teamsv1.GetSkillRequest) (*t
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetSkillResponse{Skill: toProtoSkill(skill)}, nil
+	return &agentsv1.GetSkillResponse{Skill: toProtoSkill(skill)}, nil
 }
 
-func (s *Server) UpdateSkill(ctx context.Context, req *teamsv1.UpdateSkillRequest) (*teamsv1.UpdateSkillResponse, error) {
+func (s *Server) UpdateSkill(ctx context.Context, req *agentsv1.UpdateSkillRequest) (*agentsv1.UpdateSkillResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -469,10 +469,10 @@ func (s *Server) UpdateSkill(ctx context.Context, req *teamsv1.UpdateSkillReques
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateSkillResponse{Skill: toProtoSkill(skill)}, nil
+	return &agentsv1.UpdateSkillResponse{Skill: toProtoSkill(skill)}, nil
 }
 
-func (s *Server) DeleteSkill(ctx context.Context, req *teamsv1.DeleteSkillRequest) (*teamsv1.DeleteSkillResponse, error) {
+func (s *Server) DeleteSkill(ctx context.Context, req *agentsv1.DeleteSkillRequest) (*agentsv1.DeleteSkillResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -480,10 +480,10 @@ func (s *Server) DeleteSkill(ctx context.Context, req *teamsv1.DeleteSkillReques
 	if err := s.store.DeleteSkill(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteSkillResponse{}, nil
+	return &agentsv1.DeleteSkillResponse{}, nil
 }
 
-func (s *Server) ListSkills(ctx context.Context, req *teamsv1.ListSkillsRequest) (*teamsv1.ListSkillsResponse, error) {
+func (s *Server) ListSkills(ctx context.Context, req *agentsv1.ListSkillsRequest) (*agentsv1.ListSkillsResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -503,10 +503,10 @@ func (s *Server) ListSkills(ctx context.Context, req *teamsv1.ListSkillsRequest)
 		return nil, toStatusError(err)
 	}
 	skills, nextToken := mapListResult(result.Skills, result.NextCursor, toProtoSkill)
-	return &teamsv1.ListSkillsResponse{Skills: skills, NextPageToken: nextToken}, nil
+	return &agentsv1.ListSkillsResponse{Skills: skills, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateHook(ctx context.Context, req *teamsv1.CreateHookRequest) (*teamsv1.CreateHookResponse, error) {
+func (s *Server) CreateHook(ctx context.Context, req *agentsv1.CreateHookRequest) (*agentsv1.CreateHookResponse, error) {
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
@@ -523,10 +523,10 @@ func (s *Server) CreateHook(ctx context.Context, req *teamsv1.CreateHookRequest)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateHookResponse{Hook: toProtoHook(hook)}, nil
+	return &agentsv1.CreateHookResponse{Hook: toProtoHook(hook)}, nil
 }
 
-func (s *Server) GetHook(ctx context.Context, req *teamsv1.GetHookRequest) (*teamsv1.GetHookResponse, error) {
+func (s *Server) GetHook(ctx context.Context, req *agentsv1.GetHookRequest) (*agentsv1.GetHookResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -535,10 +535,10 @@ func (s *Server) GetHook(ctx context.Context, req *teamsv1.GetHookRequest) (*tea
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetHookResponse{Hook: toProtoHook(hook)}, nil
+	return &agentsv1.GetHookResponse{Hook: toProtoHook(hook)}, nil
 }
 
-func (s *Server) UpdateHook(ctx context.Context, req *teamsv1.UpdateHookRequest) (*teamsv1.UpdateHookResponse, error) {
+func (s *Server) UpdateHook(ctx context.Context, req *agentsv1.UpdateHookRequest) (*agentsv1.UpdateHookResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -573,10 +573,10 @@ func (s *Server) UpdateHook(ctx context.Context, req *teamsv1.UpdateHookRequest)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateHookResponse{Hook: toProtoHook(hook)}, nil
+	return &agentsv1.UpdateHookResponse{Hook: toProtoHook(hook)}, nil
 }
 
-func (s *Server) DeleteHook(ctx context.Context, req *teamsv1.DeleteHookRequest) (*teamsv1.DeleteHookResponse, error) {
+func (s *Server) DeleteHook(ctx context.Context, req *agentsv1.DeleteHookRequest) (*agentsv1.DeleteHookResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -584,10 +584,10 @@ func (s *Server) DeleteHook(ctx context.Context, req *teamsv1.DeleteHookRequest)
 	if err := s.store.DeleteHook(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteHookResponse{}, nil
+	return &agentsv1.DeleteHookResponse{}, nil
 }
 
-func (s *Server) ListHooks(ctx context.Context, req *teamsv1.ListHooksRequest) (*teamsv1.ListHooksResponse, error) {
+func (s *Server) ListHooks(ctx context.Context, req *agentsv1.ListHooksRequest) (*agentsv1.ListHooksResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -607,29 +607,29 @@ func (s *Server) ListHooks(ctx context.Context, req *teamsv1.ListHooksRequest) (
 		return nil, toStatusError(err)
 	}
 	hooks, nextToken := mapListResult(result.Hooks, result.NextCursor, toProtoHook)
-	return &teamsv1.ListHooksResponse{Hooks: hooks, NextPageToken: nextToken}, nil
+	return &agentsv1.ListHooksResponse{Hooks: hooks, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateEnv(ctx context.Context, req *teamsv1.CreateEnvRequest) (*teamsv1.CreateEnvResponse, error) {
+func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) (*agentsv1.CreateEnvResponse, error) {
 	input := store.EnvInput{
 		Name:        req.GetName(),
 		Description: req.GetDescription(),
 	}
 
 	switch target := req.GetTarget().(type) {
-	case *teamsv1.CreateEnvRequest_AgentId:
+	case *agentsv1.CreateEnvRequest_AgentId:
 		id, err := parseUUID(target.AgentId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
 		input.AgentID = &id
-	case *teamsv1.CreateEnvRequest_McpId:
+	case *agentsv1.CreateEnvRequest_McpId:
 		id, err := parseUUID(target.McpId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *teamsv1.CreateEnvRequest_HookId:
+	case *agentsv1.CreateEnvRequest_HookId:
 		id, err := parseUUID(target.HookId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
@@ -640,10 +640,10 @@ func (s *Server) CreateEnv(ctx context.Context, req *teamsv1.CreateEnvRequest) (
 	}
 
 	switch source := req.GetSource().(type) {
-	case *teamsv1.CreateEnvRequest_Value:
+	case *agentsv1.CreateEnvRequest_Value:
 		value := source.Value
 		input.Value = &value
-	case *teamsv1.CreateEnvRequest_SecretId:
+	case *agentsv1.CreateEnvRequest_SecretId:
 		secretID, err := parseUUID(source.SecretId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "secret_id: %v", err)
@@ -657,10 +657,10 @@ func (s *Server) CreateEnv(ctx context.Context, req *teamsv1.CreateEnvRequest) (
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateEnvResponse{Env: toProtoEnv(env)}, nil
+	return &agentsv1.CreateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
-func (s *Server) GetEnv(ctx context.Context, req *teamsv1.GetEnvRequest) (*teamsv1.GetEnvResponse, error) {
+func (s *Server) GetEnv(ctx context.Context, req *agentsv1.GetEnvRequest) (*agentsv1.GetEnvResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -669,10 +669,10 @@ func (s *Server) GetEnv(ctx context.Context, req *teamsv1.GetEnvRequest) (*teams
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetEnvResponse{Env: toProtoEnv(env)}, nil
+	return &agentsv1.GetEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
-func (s *Server) UpdateEnv(ctx context.Context, req *teamsv1.UpdateEnvRequest) (*teamsv1.UpdateEnvResponse, error) {
+func (s *Server) UpdateEnv(ctx context.Context, req *agentsv1.UpdateEnvRequest) (*agentsv1.UpdateEnvResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -709,10 +709,10 @@ func (s *Server) UpdateEnv(ctx context.Context, req *teamsv1.UpdateEnvRequest) (
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateEnvResponse{Env: toProtoEnv(env)}, nil
+	return &agentsv1.UpdateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
-func (s *Server) DeleteEnv(ctx context.Context, req *teamsv1.DeleteEnvRequest) (*teamsv1.DeleteEnvResponse, error) {
+func (s *Server) DeleteEnv(ctx context.Context, req *agentsv1.DeleteEnvRequest) (*agentsv1.DeleteEnvResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -720,10 +720,10 @@ func (s *Server) DeleteEnv(ctx context.Context, req *teamsv1.DeleteEnvRequest) (
 	if err := s.store.DeleteEnv(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteEnvResponse{}, nil
+	return &agentsv1.DeleteEnvResponse{}, nil
 }
 
-func (s *Server) ListEnvs(ctx context.Context, req *teamsv1.ListEnvsRequest) (*teamsv1.ListEnvsResponse, error) {
+func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*agentsv1.ListEnvsResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -757,29 +757,29 @@ func (s *Server) ListEnvs(ctx context.Context, req *teamsv1.ListEnvsRequest) (*t
 		return nil, toStatusError(err)
 	}
 	envs, nextToken := mapListResult(result.Envs, result.NextCursor, toProtoEnv)
-	return &teamsv1.ListEnvsResponse{Envs: envs, NextPageToken: nextToken}, nil
+	return &agentsv1.ListEnvsResponse{Envs: envs, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateInitScript(ctx context.Context, req *teamsv1.CreateInitScriptRequest) (*teamsv1.CreateInitScriptResponse, error) {
+func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitScriptRequest) (*agentsv1.CreateInitScriptResponse, error) {
 	input := store.InitScriptInput{
 		Script:      req.GetScript(),
 		Description: req.GetDescription(),
 	}
 
 	switch target := req.GetTarget().(type) {
-	case *teamsv1.CreateInitScriptRequest_AgentId:
+	case *agentsv1.CreateInitScriptRequest_AgentId:
 		id, err := parseUUID(target.AgentId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
 		input.AgentID = &id
-	case *teamsv1.CreateInitScriptRequest_McpId:
+	case *agentsv1.CreateInitScriptRequest_McpId:
 		id, err := parseUUID(target.McpId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *teamsv1.CreateInitScriptRequest_HookId:
+	case *agentsv1.CreateInitScriptRequest_HookId:
 		id, err := parseUUID(target.HookId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
@@ -793,10 +793,10 @@ func (s *Server) CreateInitScript(ctx context.Context, req *teamsv1.CreateInitSc
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.CreateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
+	return &agentsv1.CreateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
-func (s *Server) GetInitScript(ctx context.Context, req *teamsv1.GetInitScriptRequest) (*teamsv1.GetInitScriptResponse, error) {
+func (s *Server) GetInitScript(ctx context.Context, req *agentsv1.GetInitScriptRequest) (*agentsv1.GetInitScriptResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -805,10 +805,10 @@ func (s *Server) GetInitScript(ctx context.Context, req *teamsv1.GetInitScriptRe
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.GetInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
+	return &agentsv1.GetInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
-func (s *Server) UpdateInitScript(ctx context.Context, req *teamsv1.UpdateInitScriptRequest) (*teamsv1.UpdateInitScriptResponse, error) {
+func (s *Server) UpdateInitScript(ctx context.Context, req *agentsv1.UpdateInitScriptRequest) (*agentsv1.UpdateInitScriptResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -831,10 +831,10 @@ func (s *Server) UpdateInitScript(ctx context.Context, req *teamsv1.UpdateInitSc
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.UpdateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
+	return &agentsv1.UpdateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
-func (s *Server) DeleteInitScript(ctx context.Context, req *teamsv1.DeleteInitScriptRequest) (*teamsv1.DeleteInitScriptResponse, error) {
+func (s *Server) DeleteInitScript(ctx context.Context, req *agentsv1.DeleteInitScriptRequest) (*agentsv1.DeleteInitScriptResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
@@ -842,10 +842,10 @@ func (s *Server) DeleteInitScript(ctx context.Context, req *teamsv1.DeleteInitSc
 	if err := s.store.DeleteInitScript(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	return &teamsv1.DeleteInitScriptResponse{}, nil
+	return &agentsv1.DeleteInitScriptResponse{}, nil
 }
 
-func (s *Server) ListInitScripts(ctx context.Context, req *teamsv1.ListInitScriptsRequest) (*teamsv1.ListInitScriptsResponse, error) {
+func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScriptsRequest) (*agentsv1.ListInitScriptsResponse, error) {
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
@@ -879,7 +879,7 @@ func (s *Server) ListInitScripts(ctx context.Context, req *teamsv1.ListInitScrip
 		return nil, toStatusError(err)
 	}
 	scripts, nextToken := mapListResult(result.InitScripts, result.NextCursor, toProtoInitScript)
-	return &teamsv1.ListInitScriptsResponse{InitScripts: scripts, NextPageToken: nextToken}, nil
+	return &agentsv1.ListInitScriptsResponse{InitScripts: scripts, NextPageToken: nextToken}, nil
 }
 
 func decodePageCursor(token string) (*store.PageCursor, error) {
@@ -915,7 +915,7 @@ func parseUUID(value string) (uuid.UUID, error) {
 	return id, nil
 }
 
-func toStoreComputeResources(resources *teamsv1.ComputeResources) store.ComputeResources {
+func toStoreComputeResources(resources *agentsv1.ComputeResources) store.ComputeResources {
 	if resources == nil {
 		return store.ComputeResources{}
 	}

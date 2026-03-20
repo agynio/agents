@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	teamsv1 "github.com/agynio/teams/.gen/go/agynio/api/teams/v1"
+	agentsv1 "github.com/agynio/teams/.gen/go/agynio/api/agents/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -20,21 +20,21 @@ import (
 
 const listPageSize int32 = 50
 
-func TestTeamsServiceE2E(t *testing.T) {
+func TestAgentsServiceE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, teamsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	conn, err := grpc.DialContext(ctx, agentsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = conn.Close()
 	})
 
-	client := teamsv1.NewTeamsServiceClient(conn)
+	client := agentsv1.NewAgentsServiceClient(conn)
 
 	t.Run("Agents", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp1, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp1, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Agent Alpha " + testID,
 			Role:          "engineer",
 			Model:         uuid.NewString(),
@@ -46,7 +46,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID1 := agentResp1.Agent.Meta.Id
 
-		agentResp2, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp2, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Agent Beta " + testID,
 			Role:          "analyst",
 			Model:         uuid.NewString(),
@@ -58,14 +58,14 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID2 := agentResp2.Agent.Meta.Id
 
-		updatedAgentResp, err := client.UpdateAgent(ctx, &teamsv1.UpdateAgentRequest{
+		updatedAgentResp, err := client.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
 			Id:   agentID1,
 			Name: proto.String("Agent Alpha Updated " + testID),
 		})
 		require.NoError(t, err)
 		require.Equal(t, "Agent Alpha Updated "+testID, updatedAgentResp.Agent.Name)
 
-		listAgentsResp1, err := client.ListAgents(ctx, &teamsv1.ListAgentsRequest{PageSize: 1})
+		listAgentsResp1, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{PageSize: 1})
 		require.NoError(t, err)
 		require.NotEmpty(t, listAgentsResp1.Agents)
 		require.NotEmpty(t, listAgentsResp1.NextPageToken)
@@ -74,15 +74,15 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.True(t, hasID(listAgents, agentID1))
 		require.True(t, hasID(listAgents, agentID2))
 
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID2})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID2})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID1})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID1})
 		require.NoError(t, err)
 	})
 
 	t.Run("Volumes", func(t *testing.T) {
 		testID := uuid.NewString()
-		volumeResp, err := client.CreateVolume(ctx, &teamsv1.CreateVolumeRequest{
+		volumeResp, err := client.CreateVolume(ctx, &agentsv1.CreateVolumeRequest{
 			Persistent:  true,
 			MountPath:   "/data/" + testID,
 			Size:        "1Gi",
@@ -91,7 +91,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		volumeID := volumeResp.Volume.Meta.Id
 
-		updatedVolumeResp, err := client.UpdateVolume(ctx, &teamsv1.UpdateVolumeRequest{
+		updatedVolumeResp, err := client.UpdateVolume(ctx, &agentsv1.UpdateVolumeRequest{
 			Id:          volumeID,
 			Description: proto.String("Volume Updated " + testID),
 		})
@@ -101,13 +101,13 @@ func TestTeamsServiceE2E(t *testing.T) {
 		volumes := listVolumes(ctx, t, client)
 		require.True(t, hasID(volumes, volumeID))
 
-		_, err = client.DeleteVolume(ctx, &teamsv1.DeleteVolumeRequest{Id: volumeID})
+		_, err = client.DeleteVolume(ctx, &agentsv1.DeleteVolumeRequest{Id: volumeID})
 		require.NoError(t, err)
 	})
 
 	t.Run("Mcps", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Mcp Agent " + testID,
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -119,7 +119,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
 			Image:       "mcp-image:latest",
 			Command:     "mcp --run",
@@ -129,7 +129,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		mcpID := mcpResp.Mcp.Meta.Id
 
-		updatedMcpResp, err := client.UpdateMcp(ctx, &teamsv1.UpdateMcpRequest{
+		updatedMcpResp, err := client.UpdateMcp(ctx, &agentsv1.UpdateMcpRequest{
 			Id:          mcpID,
 			Description: proto.String("Mcp Updated " + testID),
 		})
@@ -139,15 +139,15 @@ func TestTeamsServiceE2E(t *testing.T) {
 		mcps := listMcpsByAgent(ctx, t, client, agentID)
 		require.True(t, hasID(mcps, mcpID))
 
-		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
+		_, err = client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 
 	t.Run("Skills", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Skill Agent " + testID,
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -159,7 +159,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		skillResp, err := client.CreateSkill(ctx, &teamsv1.CreateSkillRequest{
+		skillResp, err := client.CreateSkill(ctx, &agentsv1.CreateSkillRequest{
 			AgentId:     agentID,
 			Name:        "Skill " + testID,
 			Body:        "skill body",
@@ -168,7 +168,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		skillID := skillResp.Skill.Meta.Id
 
-		updatedSkillResp, err := client.UpdateSkill(ctx, &teamsv1.UpdateSkillRequest{
+		updatedSkillResp, err := client.UpdateSkill(ctx, &agentsv1.UpdateSkillRequest{
 			Id:   skillID,
 			Body: proto.String("updated body"),
 		})
@@ -178,15 +178,15 @@ func TestTeamsServiceE2E(t *testing.T) {
 		skills := listSkillsByAgent(ctx, t, client, agentID)
 		require.True(t, hasID(skills, skillID))
 
-		_, err = client.DeleteSkill(ctx, &teamsv1.DeleteSkillRequest{Id: skillID})
+		_, err = client.DeleteSkill(ctx, &agentsv1.DeleteSkillRequest{Id: skillID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 
 	t.Run("Hooks", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Hook Agent " + testID,
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -198,7 +198,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+		hookResp, err := client.CreateHook(ctx, &agentsv1.CreateHookRequest{
 			AgentId:     agentID,
 			Event:       "on_start",
 			Function:    "handleStart",
@@ -209,7 +209,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		hookID := hookResp.Hook.Meta.Id
 
-		updatedHookResp, err := client.UpdateHook(ctx, &teamsv1.UpdateHookRequest{
+		updatedHookResp, err := client.UpdateHook(ctx, &agentsv1.UpdateHookRequest{
 			Id:    hookID,
 			Event: proto.String("on_stop"),
 		})
@@ -219,15 +219,15 @@ func TestTeamsServiceE2E(t *testing.T) {
 		hooks := listHooksByAgent(ctx, t, client, agentID)
 		require.True(t, hasID(hooks, hookID))
 
-		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		_, err = client.DeleteHook(ctx, &agentsv1.DeleteHookRequest{Id: hookID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 
 	t.Run("Envs", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Env Agent " + testID,
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -239,7 +239,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
 			Image:       "mcp-image:latest",
 			Command:     "mcp --env",
@@ -249,7 +249,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		mcpID := mcpResp.Mcp.Meta.Id
 
-		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+		hookResp, err := client.CreateHook(ctx, &agentsv1.CreateHookRequest{
 			AgentId:     agentID,
 			Event:       "env_event",
 			Function:    "envHandler",
@@ -260,65 +260,65 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		hookID := hookResp.Hook.Meta.Id
 
-		envResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
+		envResp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
 			Name:        "ENV_VAR",
 			Description: "Env " + testID,
-			Target:      &teamsv1.CreateEnvRequest_AgentId{AgentId: agentID},
-			Source:      &teamsv1.CreateEnvRequest_Value{Value: "value"},
+			Target:      &agentsv1.CreateEnvRequest_AgentId{AgentId: agentID},
+			Source:      &agentsv1.CreateEnvRequest_Value{Value: "value"},
 		})
 		require.NoError(t, err)
 		envID := envResp.Env.Meta.Id
 
-		envMcpResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
+		envMcpResp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
 			Name:        "MCP_ENV",
 			Description: "Env mcp " + testID,
-			Target:      &teamsv1.CreateEnvRequest_McpId{McpId: mcpID},
-			Source:      &teamsv1.CreateEnvRequest_Value{Value: "mcp-value"},
+			Target:      &agentsv1.CreateEnvRequest_McpId{McpId: mcpID},
+			Source:      &agentsv1.CreateEnvRequest_Value{Value: "mcp-value"},
 		})
 		require.NoError(t, err)
 		envMcpID := envMcpResp.Env.Meta.Id
 
-		envHookResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
+		envHookResp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
 			Name:        "HOOK_ENV",
 			Description: "Env hook " + testID,
-			Target:      &teamsv1.CreateEnvRequest_HookId{HookId: hookID},
-			Source:      &teamsv1.CreateEnvRequest_Value{Value: "hook-value"},
+			Target:      &agentsv1.CreateEnvRequest_HookId{HookId: hookID},
+			Source:      &agentsv1.CreateEnvRequest_Value{Value: "hook-value"},
 		})
 		require.NoError(t, err)
 		envHookID := envHookResp.Env.Meta.Id
 
 		secretID := uuid.NewString()
-		updatedEnvResp, err := client.UpdateEnv(ctx, &teamsv1.UpdateEnvRequest{
+		updatedEnvResp, err := client.UpdateEnv(ctx, &agentsv1.UpdateEnvRequest{
 			Id:       envID,
 			SecretId: proto.String(secretID),
 		})
 		require.NoError(t, err)
 		require.Equal(t, secretID, updatedEnvResp.Env.GetSecretId())
 
-		envsByAgent := listEnvs(ctx, t, client, &teamsv1.ListEnvsRequest{AgentId: agentID})
+		envsByAgent := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{AgentId: agentID})
 		require.True(t, hasID(envsByAgent, envID))
-		envsByMcp := listEnvs(ctx, t, client, &teamsv1.ListEnvsRequest{McpId: mcpID})
+		envsByMcp := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{McpId: mcpID})
 		require.True(t, hasID(envsByMcp, envMcpID))
-		envsByHook := listEnvs(ctx, t, client, &teamsv1.ListEnvsRequest{HookId: hookID})
+		envsByHook := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{HookId: hookID})
 		require.True(t, hasID(envsByHook, envHookID))
 
-		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envHookID})
+		_, err = client.DeleteEnv(ctx, &agentsv1.DeleteEnvRequest{Id: envHookID})
 		require.NoError(t, err)
-		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envMcpID})
+		_, err = client.DeleteEnv(ctx, &agentsv1.DeleteEnvRequest{Id: envMcpID})
 		require.NoError(t, err)
-		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envID})
+		_, err = client.DeleteEnv(ctx, &agentsv1.DeleteEnvRequest{Id: envID})
 		require.NoError(t, err)
-		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		_, err = client.DeleteHook(ctx, &agentsv1.DeleteHookRequest{Id: hookID})
 		require.NoError(t, err)
-		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
+		_, err = client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 
 	t.Run("InitScripts", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Init Agent " + testID,
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -330,7 +330,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
 			Image:       "mcp-image:latest",
 			Command:     "mcp --init",
@@ -340,7 +340,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		mcpID := mcpResp.Mcp.Meta.Id
 
-		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+		hookResp, err := client.CreateHook(ctx, &agentsv1.CreateHookRequest{
 			AgentId:     agentID,
 			Event:       "init_event",
 			Function:    "initHandler",
@@ -351,61 +351,61 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		hookID := hookResp.Hook.Meta.Id
 
-		initResp, err := client.CreateInitScript(ctx, &teamsv1.CreateInitScriptRequest{
+		initResp, err := client.CreateInitScript(ctx, &agentsv1.CreateInitScriptRequest{
 			Script:      "echo init",
 			Description: "Init script " + testID,
-			Target:      &teamsv1.CreateInitScriptRequest_AgentId{AgentId: agentID},
+			Target:      &agentsv1.CreateInitScriptRequest_AgentId{AgentId: agentID},
 		})
 		require.NoError(t, err)
 		initID := initResp.InitScript.Meta.Id
 
-		mcpInitResp, err := client.CreateInitScript(ctx, &teamsv1.CreateInitScriptRequest{
+		mcpInitResp, err := client.CreateInitScript(ctx, &agentsv1.CreateInitScriptRequest{
 			Script:      "echo mcp init",
 			Description: "Init script mcp " + testID,
-			Target:      &teamsv1.CreateInitScriptRequest_McpId{McpId: mcpID},
+			Target:      &agentsv1.CreateInitScriptRequest_McpId{McpId: mcpID},
 		})
 		require.NoError(t, err)
 		mcpInitID := mcpInitResp.InitScript.Meta.Id
 
-		hookInitResp, err := client.CreateInitScript(ctx, &teamsv1.CreateInitScriptRequest{
+		hookInitResp, err := client.CreateInitScript(ctx, &agentsv1.CreateInitScriptRequest{
 			Script:      "echo hook init",
 			Description: "Init script hook " + testID,
-			Target:      &teamsv1.CreateInitScriptRequest_HookId{HookId: hookID},
+			Target:      &agentsv1.CreateInitScriptRequest_HookId{HookId: hookID},
 		})
 		require.NoError(t, err)
 		hookInitID := hookInitResp.InitScript.Meta.Id
 
-		updatedInitResp, err := client.UpdateInitScript(ctx, &teamsv1.UpdateInitScriptRequest{
+		updatedInitResp, err := client.UpdateInitScript(ctx, &agentsv1.UpdateInitScriptRequest{
 			Id:          initID,
 			Description: proto.String("Init script updated " + testID),
 		})
 		require.NoError(t, err)
 		require.Equal(t, "Init script updated "+testID, updatedInitResp.InitScript.Description)
 
-		scriptsByAgent := listInitScripts(ctx, t, client, &teamsv1.ListInitScriptsRequest{AgentId: agentID})
+		scriptsByAgent := listInitScripts(ctx, t, client, &agentsv1.ListInitScriptsRequest{AgentId: agentID})
 		require.True(t, hasID(scriptsByAgent, initID))
-		scriptsByMcp := listInitScripts(ctx, t, client, &teamsv1.ListInitScriptsRequest{McpId: mcpID})
+		scriptsByMcp := listInitScripts(ctx, t, client, &agentsv1.ListInitScriptsRequest{McpId: mcpID})
 		require.True(t, hasID(scriptsByMcp, mcpInitID))
-		scriptsByHook := listInitScripts(ctx, t, client, &teamsv1.ListInitScriptsRequest{HookId: hookID})
+		scriptsByHook := listInitScripts(ctx, t, client, &agentsv1.ListInitScriptsRequest{HookId: hookID})
 		require.True(t, hasID(scriptsByHook, hookInitID))
 
-		_, err = client.DeleteInitScript(ctx, &teamsv1.DeleteInitScriptRequest{Id: hookInitID})
+		_, err = client.DeleteInitScript(ctx, &agentsv1.DeleteInitScriptRequest{Id: hookInitID})
 		require.NoError(t, err)
-		_, err = client.DeleteInitScript(ctx, &teamsv1.DeleteInitScriptRequest{Id: mcpInitID})
+		_, err = client.DeleteInitScript(ctx, &agentsv1.DeleteInitScriptRequest{Id: mcpInitID})
 		require.NoError(t, err)
-		_, err = client.DeleteInitScript(ctx, &teamsv1.DeleteInitScriptRequest{Id: initID})
+		_, err = client.DeleteInitScript(ctx, &agentsv1.DeleteInitScriptRequest{Id: initID})
 		require.NoError(t, err)
-		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		_, err = client.DeleteHook(ctx, &agentsv1.DeleteHookRequest{Id: hookID})
 		require.NoError(t, err)
-		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
+		_, err = client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 
 	t.Run("VolumeAttachments", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Attachment Agent " + testID,
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -417,7 +417,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
 			Image:       "mcp-image:latest",
 			Command:     "mcp --attach",
@@ -427,7 +427,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		mcpID := mcpResp.Mcp.Meta.Id
 
-		hookResp, err := client.CreateHook(ctx, &teamsv1.CreateHookRequest{
+		hookResp, err := client.CreateHook(ctx, &agentsv1.CreateHookRequest{
 			AgentId:     agentID,
 			Event:       "attach_event",
 			Function:    "attachHandler",
@@ -438,7 +438,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		hookID := hookResp.Hook.Meta.Id
 
-		volumeResp, err := client.CreateVolume(ctx, &teamsv1.CreateVolumeRequest{
+		volumeResp, err := client.CreateVolume(ctx, &agentsv1.CreateVolumeRequest{
 			Persistent:  false,
 			MountPath:   "/vol/" + testID,
 			Size:        "2Gi",
@@ -447,77 +447,77 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		volumeID := volumeResp.Volume.Meta.Id
 
-		attachmentResp, err := client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
+		attachmentResp, err := client.CreateVolumeAttachment(ctx, &agentsv1.CreateVolumeAttachmentRequest{
 			VolumeId: volumeID,
-			Target:   &teamsv1.CreateVolumeAttachmentRequest_AgentId{AgentId: agentID},
+			Target:   &agentsv1.CreateVolumeAttachmentRequest_AgentId{AgentId: agentID},
 		})
 		require.NoError(t, err)
 		attachmentID := attachmentResp.VolumeAttachment.Meta.Id
 
-		mcpAttachmentResp, err := client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
+		mcpAttachmentResp, err := client.CreateVolumeAttachment(ctx, &agentsv1.CreateVolumeAttachmentRequest{
 			VolumeId: volumeID,
-			Target:   &teamsv1.CreateVolumeAttachmentRequest_McpId{McpId: mcpID},
+			Target:   &agentsv1.CreateVolumeAttachmentRequest_McpId{McpId: mcpID},
 		})
 		require.NoError(t, err)
 		mcpAttachmentID := mcpAttachmentResp.VolumeAttachment.Meta.Id
 
-		hookAttachmentResp, err := client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
+		hookAttachmentResp, err := client.CreateVolumeAttachment(ctx, &agentsv1.CreateVolumeAttachmentRequest{
 			VolumeId: volumeID,
-			Target:   &teamsv1.CreateVolumeAttachmentRequest_HookId{HookId: hookID},
+			Target:   &agentsv1.CreateVolumeAttachmentRequest_HookId{HookId: hookID},
 		})
 		require.NoError(t, err)
 		hookAttachmentID := hookAttachmentResp.VolumeAttachment.Meta.Id
 
-		_, err = client.CreateVolumeAttachment(ctx, &teamsv1.CreateVolumeAttachmentRequest{
+		_, err = client.CreateVolumeAttachment(ctx, &agentsv1.CreateVolumeAttachmentRequest{
 			VolumeId: volumeID,
-			Target:   &teamsv1.CreateVolumeAttachmentRequest_AgentId{AgentId: agentID},
+			Target:   &agentsv1.CreateVolumeAttachmentRequest_AgentId{AgentId: agentID},
 		})
 		requireStatusCode(t, err, codes.AlreadyExists)
 
-		getAttachmentResp, err := client.GetVolumeAttachment(ctx, &teamsv1.GetVolumeAttachmentRequest{Id: attachmentID})
+		getAttachmentResp, err := client.GetVolumeAttachment(ctx, &agentsv1.GetVolumeAttachmentRequest{Id: attachmentID})
 		require.NoError(t, err)
 		require.Equal(t, volumeID, getAttachmentResp.VolumeAttachment.VolumeId)
 		require.Equal(t, agentID, getAttachmentResp.VolumeAttachment.GetAgentId())
 
-		getMcpAttachmentResp, err := client.GetVolumeAttachment(ctx, &teamsv1.GetVolumeAttachmentRequest{Id: mcpAttachmentID})
+		getMcpAttachmentResp, err := client.GetVolumeAttachment(ctx, &agentsv1.GetVolumeAttachmentRequest{Id: mcpAttachmentID})
 		require.NoError(t, err)
 		require.Equal(t, volumeID, getMcpAttachmentResp.VolumeAttachment.VolumeId)
 		require.Equal(t, mcpID, getMcpAttachmentResp.VolumeAttachment.GetMcpId())
 
-		getHookAttachmentResp, err := client.GetVolumeAttachment(ctx, &teamsv1.GetVolumeAttachmentRequest{Id: hookAttachmentID})
+		getHookAttachmentResp, err := client.GetVolumeAttachment(ctx, &agentsv1.GetVolumeAttachmentRequest{Id: hookAttachmentID})
 		require.NoError(t, err)
 		require.Equal(t, volumeID, getHookAttachmentResp.VolumeAttachment.VolumeId)
 		require.Equal(t, hookID, getHookAttachmentResp.VolumeAttachment.GetHookId())
 
-		attachments := listVolumeAttachments(ctx, t, client, &teamsv1.ListVolumeAttachmentsRequest{VolumeId: volumeID})
+		attachments := listVolumeAttachments(ctx, t, client, &agentsv1.ListVolumeAttachmentsRequest{VolumeId: volumeID})
 		require.True(t, hasID(attachments, attachmentID))
 		require.True(t, hasID(attachments, mcpAttachmentID))
 		require.True(t, hasID(attachments, hookAttachmentID))
 
-		_, err = client.DeleteVolumeAttachment(ctx, &teamsv1.DeleteVolumeAttachmentRequest{Id: hookAttachmentID})
+		_, err = client.DeleteVolumeAttachment(ctx, &agentsv1.DeleteVolumeAttachmentRequest{Id: hookAttachmentID})
 		require.NoError(t, err)
-		_, err = client.DeleteVolumeAttachment(ctx, &teamsv1.DeleteVolumeAttachmentRequest{Id: mcpAttachmentID})
+		_, err = client.DeleteVolumeAttachment(ctx, &agentsv1.DeleteVolumeAttachmentRequest{Id: mcpAttachmentID})
 		require.NoError(t, err)
-		_, err = client.DeleteVolumeAttachment(ctx, &teamsv1.DeleteVolumeAttachmentRequest{Id: attachmentID})
+		_, err = client.DeleteVolumeAttachment(ctx, &agentsv1.DeleteVolumeAttachmentRequest{Id: attachmentID})
 		require.NoError(t, err)
-		_, err = client.DeleteVolume(ctx, &teamsv1.DeleteVolumeRequest{Id: volumeID})
+		_, err = client.DeleteVolume(ctx, &agentsv1.DeleteVolumeRequest{Id: volumeID})
 		require.NoError(t, err)
-		_, err = client.DeleteHook(ctx, &teamsv1.DeleteHookRequest{Id: hookID})
+		_, err = client.DeleteHook(ctx, &agentsv1.DeleteHookRequest{Id: hookID})
 		require.NoError(t, err)
-		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
+		_, err = client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 
 	t.Run("NegativePaths", func(t *testing.T) {
-		_, err := client.GetAgent(ctx, &teamsv1.GetAgentRequest{Id: uuid.NewString()})
+		_, err := client.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: uuid.NewString()})
 		requireStatusCode(t, err, codes.NotFound)
 
-		_, err = client.UpdateAgent(ctx, &teamsv1.UpdateAgentRequest{Id: uuid.NewString()})
+		_, err = client.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{Id: uuid.NewString()})
 		requireStatusCode(t, err, codes.InvalidArgument)
 
-		_, err = client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+		_, err = client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     uuid.NewString(),
 			Image:       "mcp-image:latest",
 			Command:     "mcp",
@@ -526,7 +526,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		})
 		requireStatusCode(t, err, codes.FailedPrecondition)
 
-		agentResp, err := client.CreateAgent(ctx, &teamsv1.CreateAgentRequest{
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			Name:          "Negative Agent",
 			Role:          "agent",
 			Model:         uuid.NewString(),
@@ -538,7 +538,7 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
-		mcpResp, err := client.CreateMcp(ctx, &teamsv1.CreateMcpRequest{
+		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
 			Image:       "mcp-image:latest",
 			Command:     "mcp",
@@ -548,36 +548,36 @@ func TestTeamsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		mcpID := mcpResp.Mcp.Meta.Id
 
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		requireStatusCode(t, err, codes.FailedPrecondition)
 
-		envResp, err := client.CreateEnv(ctx, &teamsv1.CreateEnvRequest{
+		envResp, err := client.CreateEnv(ctx, &agentsv1.CreateEnvRequest{
 			Name:        "NEGATIVE_ENV",
 			Description: "negative",
-			Target:      &teamsv1.CreateEnvRequest_AgentId{AgentId: agentID},
-			Source:      &teamsv1.CreateEnvRequest_Value{Value: "value"},
+			Target:      &agentsv1.CreateEnvRequest_AgentId{AgentId: agentID},
+			Source:      &agentsv1.CreateEnvRequest_Value{Value: "value"},
 		})
 		require.NoError(t, err)
 		envID := envResp.Env.Meta.Id
 
-		_, err = client.UpdateEnv(ctx, &teamsv1.UpdateEnvRequest{
+		_, err = client.UpdateEnv(ctx, &agentsv1.UpdateEnvRequest{
 			Id:       envID,
 			Value:    proto.String("value"),
 			SecretId: proto.String(uuid.NewString()),
 		})
 		requireStatusCode(t, err, codes.InvalidArgument)
 
-		_, err = client.DeleteEnv(ctx, &teamsv1.DeleteEnvRequest{Id: envID})
+		_, err = client.DeleteEnv(ctx, &agentsv1.DeleteEnvRequest{Id: envID})
 		require.NoError(t, err)
-		_, err = client.DeleteMcp(ctx, &teamsv1.DeleteMcpRequest{Id: mcpID})
+		_, err = client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
 		require.NoError(t, err)
-		_, err = client.DeleteAgent(ctx, &teamsv1.DeleteAgentRequest{Id: agentID})
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
 		require.NoError(t, err)
 	})
 }
 
-func baseResources() *teamsv1.ComputeResources {
-	return &teamsv1.ComputeResources{
+func baseResources() *agentsv1.ComputeResources {
+	return &agentsv1.ComputeResources{
 		RequestsCpu:    "100m",
 		RequestsMemory: "128Mi",
 		LimitsCpu:      "200m",
@@ -586,7 +586,7 @@ func baseResources() *teamsv1.ComputeResources {
 }
 
 type metaGetter interface {
-	GetMeta() *teamsv1.EntityMeta
+	GetMeta() *agentsv1.EntityMeta
 }
 
 func listPaged[T any](t *testing.T, resource string, fetch func(pageToken string) ([]T, string, error)) []T {
@@ -606,9 +606,9 @@ func listPaged[T any](t *testing.T, resource string, fetch func(pageToken string
 	return nil
 }
 
-func listAgents(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient) []*teamsv1.Agent {
-	return listPaged(t, "agent", func(pageToken string) ([]*teamsv1.Agent, string, error) {
-		resp, err := client.ListAgents(ctx, &teamsv1.ListAgentsRequest{PageSize: listPageSize, PageToken: pageToken})
+func listAgents(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient) []*agentsv1.Agent {
+	return listPaged(t, "agent", func(pageToken string) ([]*agentsv1.Agent, string, error) {
+		resp, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}
@@ -616,9 +616,9 @@ func listAgents(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceCl
 	})
 }
 
-func listVolumes(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient) []*teamsv1.Volume {
-	return listPaged(t, "volume", func(pageToken string) ([]*teamsv1.Volume, string, error) {
-		resp, err := client.ListVolumes(ctx, &teamsv1.ListVolumesRequest{PageSize: listPageSize, PageToken: pageToken})
+func listVolumes(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient) []*agentsv1.Volume {
+	return listPaged(t, "volume", func(pageToken string) ([]*agentsv1.Volume, string, error) {
+		resp, err := client.ListVolumes(ctx, &agentsv1.ListVolumesRequest{PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}
@@ -626,9 +626,9 @@ func listVolumes(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceC
 	})
 }
 
-func listMcpsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Mcp {
-	return listPaged(t, "mcp", func(pageToken string) ([]*teamsv1.Mcp, string, error) {
-		resp, err := client.ListMcps(ctx, &teamsv1.ListMcpsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
+func listMcpsByAgent(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, agentID string) []*agentsv1.Mcp {
+	return listPaged(t, "mcp", func(pageToken string) ([]*agentsv1.Mcp, string, error) {
+		resp, err := client.ListMcps(ctx, &agentsv1.ListMcpsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}
@@ -636,9 +636,9 @@ func listMcpsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServ
 	})
 }
 
-func listSkillsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Skill {
-	return listPaged(t, "skill", func(pageToken string) ([]*teamsv1.Skill, string, error) {
-		resp, err := client.ListSkills(ctx, &teamsv1.ListSkillsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
+func listSkillsByAgent(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, agentID string) []*agentsv1.Skill {
+	return listPaged(t, "skill", func(pageToken string) ([]*agentsv1.Skill, string, error) {
+		resp, err := client.ListSkills(ctx, &agentsv1.ListSkillsRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}
@@ -646,9 +646,9 @@ func listSkillsByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsSe
 	})
 }
 
-func listHooksByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, agentID string) []*teamsv1.Hook {
-	return listPaged(t, "hook", func(pageToken string) ([]*teamsv1.Hook, string, error) {
-		resp, err := client.ListHooks(ctx, &teamsv1.ListHooksRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
+func listHooksByAgent(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, agentID string) []*agentsv1.Hook {
+	return listPaged(t, "hook", func(pageToken string) ([]*agentsv1.Hook, string, error) {
+		resp, err := client.ListHooks(ctx, &agentsv1.ListHooksRequest{AgentId: agentID, PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}
@@ -656,9 +656,9 @@ func listHooksByAgent(ctx context.Context, t *testing.T, client teamsv1.TeamsSer
 	})
 }
 
-func listEnvs(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, request *teamsv1.ListEnvsRequest) []*teamsv1.Env {
+func listEnvs(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, request *agentsv1.ListEnvsRequest) []*agentsv1.Env {
 	baseRequest := *request
-	return listPaged(t, "env", func(pageToken string) ([]*teamsv1.Env, string, error) {
+	return listPaged(t, "env", func(pageToken string) ([]*agentsv1.Env, string, error) {
 		req := baseRequest
 		req.PageSize = listPageSize
 		req.PageToken = pageToken
@@ -670,9 +670,9 @@ func listEnvs(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClie
 	})
 }
 
-func listInitScripts(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, request *teamsv1.ListInitScriptsRequest) []*teamsv1.InitScript {
+func listInitScripts(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, request *agentsv1.ListInitScriptsRequest) []*agentsv1.InitScript {
 	baseRequest := *request
-	return listPaged(t, "init script", func(pageToken string) ([]*teamsv1.InitScript, string, error) {
+	return listPaged(t, "init script", func(pageToken string) ([]*agentsv1.InitScript, string, error) {
 		req := baseRequest
 		req.PageSize = listPageSize
 		req.PageToken = pageToken
@@ -684,9 +684,9 @@ func listInitScripts(ctx context.Context, t *testing.T, client teamsv1.TeamsServ
 	})
 }
 
-func listVolumeAttachments(ctx context.Context, t *testing.T, client teamsv1.TeamsServiceClient, request *teamsv1.ListVolumeAttachmentsRequest) []*teamsv1.VolumeAttachment {
+func listVolumeAttachments(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, request *agentsv1.ListVolumeAttachmentsRequest) []*agentsv1.VolumeAttachment {
 	baseRequest := *request
-	return listPaged(t, "volume attachment", func(pageToken string) ([]*teamsv1.VolumeAttachment, string, error) {
+	return listPaged(t, "volume attachment", func(pageToken string) ([]*agentsv1.VolumeAttachment, string, error) {
 		req := baseRequest
 		req.PageSize = listPageSize
 		req.PageToken = pageToken

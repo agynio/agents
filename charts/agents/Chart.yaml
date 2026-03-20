@@ -1,12 +1,12 @@
 apiVersion: v2
-name: teams
-description: Helm chart for deploying the TeamsService gRPC server.
+name: agents
+description: Helm chart for deploying the AgentsService gRPC server.
 type: application
 version: 0.1.0
 appVersion: 0.1.0
-home: https://github.com/agynio/teams
+home: https://github.com/agynio/agents
 sources:
-  - https://github.com/agynio/teams
+  - https://github.com/agynio/agents
 dependencies:
   - name: service-base
     version: ">=0.1.4 <1.0.0"
