@@ -24,6 +24,7 @@ func toProtoComputeResources(resources store.ComputeResources) *agentsv1.Compute
 }
 
 func toProtoAgent(agent store.Agent) *agentsv1.Agent {
+	// TODO: Populate OrganizationId once included in Agent response proto.
 	return &agentsv1.Agent{
 		Meta:          toProtoEntityMeta(agent.Meta),
 		Name:          agent.Name,
@@ -37,6 +38,7 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 }
 
 func toProtoVolume(volume store.Volume) *agentsv1.Volume {
+	// TODO: Populate OrganizationId once included in Volume response proto.
 	return &agentsv1.Volume{
 		Meta:        toProtoEntityMeta(volume.Meta),
 		Persistent:  volume.Persistent,
