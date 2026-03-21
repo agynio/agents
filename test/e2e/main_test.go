@@ -13,10 +13,9 @@ import (
 var agentsAddr = envOrDefault("AGENTS_ADDR", "agents:50051")
 
 const (
-	testTenantID     = "11111111-1111-1111-1111-111111111111"
-	testIdentityID   = "22222222-2222-2222-2222-222222222222"
-	testIdentityType = "user"
-	testAuthMethod   = "test"
+	testOrganizationID = "11111111-1111-1111-1111-111111111111"
+	testIdentityID     = "22222222-2222-2222-2222-222222222222"
+	testIdentityType   = "user"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -28,10 +27,8 @@ func envOrDefault(key, fallback string) string {
 
 func withTestIdentity(ctx context.Context) context.Context {
 	md := metadata.Pairs(
-		"x-agyn-tenant-id", testTenantID,
-		"x-agyn-identity-id", testIdentityID,
-		"x-agyn-identity-type", testIdentityType,
-		"x-agyn-auth-method", testAuthMethod,
+		"x-identity-id", testIdentityID,
+		"x-identity-type", testIdentityType,
 	)
 	return metadata.NewOutgoingContext(ctx, md)
 }

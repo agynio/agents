@@ -29,21 +29,19 @@ func (b *updateBuilder) empty() bool {
 	return len(b.setClauses) == 0
 }
 
-func (b *updateBuilder) build(table string, returning string, id uuid.UUID, tenantID uuid.UUID) (string, []any) {
-	return buildUpdateQuery(table, returning, b.setClauses, b.args, id, tenantID)
+func (b *updateBuilder) build(table string, returning string, id uuid.UUID) (string, []any) {
+	return buildUpdateQuery(table, returning, b.setClauses, b.args, id)
 }
 
-func buildUpdateQuery(table string, returning string, setClauses []string, args []any, id uuid.UUID, tenantID uuid.UUID) (string, []any) {
+func buildUpdateQuery(table string, returning string, setClauses []string, args []any, id uuid.UUID) (string, []any) {
 	setClauses = append(setClauses, "updated_at = NOW()")
-	args = append(args, id, tenantID)
-	idIndex := len(args) - 1
-	tenantIndex := len(args)
+	args = append(args, id)
+	idIndex := len(args)
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE id = $%d AND tenant_id = $%d RETURNING %s",
+		"UPDATE %s SET %s WHERE id = $%d RETURNING %s",
 		table,
 		strings.Join(setClauses, ", "),
 		idIndex,
-		tenantIndex,
 		returning,
 	)
 	return query, args

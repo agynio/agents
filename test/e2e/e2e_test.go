@@ -36,25 +36,27 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("Agents", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp1, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Agent Alpha " + testID,
-			Role:          "engineer",
-			Model:         uuid.NewString(),
-			Description:   "First agent " + testID,
-			Configuration: "config-alpha",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Agent Alpha " + testID,
+			Role:           "engineer",
+			Model:          uuid.NewString(),
+			Description:    "First agent " + testID,
+			Configuration:  "config-alpha",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID1 := agentResp1.Agent.Meta.Id
 
 		agentResp2, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Agent Beta " + testID,
-			Role:          "analyst",
-			Model:         uuid.NewString(),
-			Description:   "Second agent " + testID,
-			Configuration: "config-beta",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Agent Beta " + testID,
+			Role:           "analyst",
+			Model:          uuid.NewString(),
+			Description:    "Second agent " + testID,
+			Configuration:  "config-beta",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID2 := agentResp2.Agent.Meta.Id
@@ -66,7 +68,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "Agent Alpha Updated "+testID, updatedAgentResp.Agent.Name)
 
-		listAgentsResp1, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{PageSize: 1})
+		listAgentsResp1, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{OrganizationId: testOrganizationID, PageSize: 1})
 		require.NoError(t, err)
 		require.NotEmpty(t, listAgentsResp1.Agents)
 		require.NotEmpty(t, listAgentsResp1.NextPageToken)
@@ -84,10 +86,11 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("Volumes", func(t *testing.T) {
 		testID := uuid.NewString()
 		volumeResp, err := client.CreateVolume(ctx, &agentsv1.CreateVolumeRequest{
-			Persistent:  true,
-			MountPath:   "/data/" + testID,
-			Size:        "1Gi",
-			Description: "Volume " + testID,
+			OrganizationId: testOrganizationID,
+			Persistent:     true,
+			MountPath:      "/data/" + testID,
+			Size:           "1Gi",
+			Description:    "Volume " + testID,
 		})
 		require.NoError(t, err)
 		volumeID := volumeResp.Volume.Meta.Id
@@ -109,13 +112,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("Mcps", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Mcp Agent " + testID,
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "Mcp agent " + testID,
-			Configuration: "config-mcp",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Mcp Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Mcp agent " + testID,
+			Configuration:  "config-mcp",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -149,13 +153,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("Skills", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Skill Agent " + testID,
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "Skill agent " + testID,
-			Configuration: "config-skill",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Skill Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Skill agent " + testID,
+			Configuration:  "config-skill",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -188,13 +193,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("Hooks", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Hook Agent " + testID,
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "Hook agent " + testID,
-			Configuration: "config-hook",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Hook Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Hook agent " + testID,
+			Configuration:  "config-hook",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -229,13 +235,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("Envs", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Env Agent " + testID,
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "Env agent " + testID,
-			Configuration: "config-env",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Env Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Env agent " + testID,
+			Configuration:  "config-env",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -320,13 +327,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("InitScripts", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Init Agent " + testID,
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "Init agent " + testID,
-			Configuration: "config-init",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Init Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Init agent " + testID,
+			Configuration:  "config-init",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -407,13 +415,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("VolumeAttachments", func(t *testing.T) {
 		testID := uuid.NewString()
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Attachment Agent " + testID,
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "Attachment agent " + testID,
-			Configuration: "config-attachment",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Attachment Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Attachment agent " + testID,
+			Configuration:  "config-attachment",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -440,10 +449,11 @@ func TestAgentsServiceE2E(t *testing.T) {
 		hookID := hookResp.Hook.Meta.Id
 
 		volumeResp, err := client.CreateVolume(ctx, &agentsv1.CreateVolumeRequest{
-			Persistent:  false,
-			MountPath:   "/vol/" + testID,
-			Size:        "2Gi",
-			Description: "Attachment volume " + testID,
+			OrganizationId: testOrganizationID,
+			Persistent:     false,
+			MountPath:      "/vol/" + testID,
+			Size:           "2Gi",
+			Description:    "Attachment volume " + testID,
 		})
 		require.NoError(t, err)
 		volumeID := volumeResp.Volume.Meta.Id
@@ -528,13 +538,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 		requireStatusCode(t, err, codes.FailedPrecondition)
 
 		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			Name:          "Negative Agent",
-			Role:          "agent",
-			Model:         uuid.NewString(),
-			Description:   "negative",
-			Configuration: "config-negative",
-			Image:         "agent-image:latest",
-			Resources:     baseResources(),
+			OrganizationId: testOrganizationID,
+			Name:           "Negative Agent",
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "negative",
+			Configuration:  "config-negative",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
@@ -609,7 +620,7 @@ func listPaged[T any](t *testing.T, resource string, fetch func(pageToken string
 
 func listAgents(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient) []*agentsv1.Agent {
 	return listPaged(t, "agent", func(pageToken string) ([]*agentsv1.Agent, string, error) {
-		resp, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{PageSize: listPageSize, PageToken: pageToken})
+		resp, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{OrganizationId: testOrganizationID, PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}
@@ -619,7 +630,7 @@ func listAgents(ctx context.Context, t *testing.T, client agentsv1.AgentsService
 
 func listVolumes(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient) []*agentsv1.Volume {
 	return listPaged(t, "volume", func(pageToken string) ([]*agentsv1.Volume, string, error) {
-		resp, err := client.ListVolumes(ctx, &agentsv1.ListVolumesRequest{PageSize: listPageSize, PageToken: pageToken})
+		resp, err := client.ListVolumes(ctx, &agentsv1.ListVolumesRequest{OrganizationId: testOrganizationID, PageSize: listPageSize, PageToken: pageToken})
 		if err != nil {
 			return nil, "", err
 		}

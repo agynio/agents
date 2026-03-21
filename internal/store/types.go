@@ -8,7 +8,6 @@ import (
 
 type EntityMeta struct {
 	ID        uuid.UUID
-	TenantID  uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -21,22 +20,24 @@ type ComputeResources struct {
 }
 
 type Agent struct {
-	Meta          EntityMeta
-	Name          string
-	Role          string
-	Model         uuid.UUID
-	Description   string
-	Configuration string
-	Image         string
-	Resources     ComputeResources
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Name           string
+	Role           string
+	Model          uuid.UUID
+	Description    string
+	Configuration  string
+	Image          string
+	Resources      ComputeResources
 }
 
 type Volume struct {
-	Meta        EntityMeta
-	Persistent  bool
-	MountPath   string
-	Size        string
-	Description string
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Persistent     bool
+	MountPath      string
+	Size           string
+	Description    string
 }
 
 type VolumeAttachment struct {

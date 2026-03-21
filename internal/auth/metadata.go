@@ -9,17 +9,13 @@ import (
 )
 
 const (
-	MetaTenantID     = "x-agyn-tenant-id"
-	MetaIdentityID   = "x-agyn-identity-id"
-	MetaIdentityType = "x-agyn-identity-type"
-	MetaAuthMethod   = "x-agyn-auth-method"
+	MetaIdentityID   = "x-identity-id"
+	MetaIdentityType = "x-identity-type"
 )
 
 type RequestIdentity struct {
-	TenantID     uuid.UUID
 	IdentityID   uuid.UUID
 	IdentityType string
-	AuthMethod   string
 }
 
 type identityKey struct{}
@@ -30,10 +26,6 @@ func ExtractIdentity(ctx context.Context) (RequestIdentity, error) {
 		return RequestIdentity{}, fmt.Errorf("metadata missing")
 	}
 
-	tenantID, err := parseMetadataUUID(md, MetaTenantID)
-	if err != nil {
-		return RequestIdentity{}, fmt.Errorf("%s: %w", MetaTenantID, err)
-	}
 	identityID, err := parseMetadataUUID(md, MetaIdentityID)
 	if err != nil {
 		return RequestIdentity{}, fmt.Errorf("%s: %w", MetaIdentityID, err)
@@ -42,16 +34,10 @@ func ExtractIdentity(ctx context.Context) (RequestIdentity, error) {
 	if err != nil {
 		return RequestIdentity{}, fmt.Errorf("%s: %w", MetaIdentityType, err)
 	}
-	authMethod, err := metadataValue(md, MetaAuthMethod)
-	if err != nil {
-		return RequestIdentity{}, fmt.Errorf("%s: %w", MetaAuthMethod, err)
-	}
 
 	return RequestIdentity{
-		TenantID:     tenantID,
 		IdentityID:   identityID,
 		IdentityType: identityType,
-		AuthMethod:   authMethod,
 	}, nil
 }
 
@@ -65,10 +51,6 @@ func IdentityFromContext(ctx context.Context) RequestIdentity {
 		panic("request identity has unexpected type")
 	}
 	return identity
-}
-
-func TenantIDFromContext(ctx context.Context) uuid.UUID {
-	return IdentityFromContext(ctx).TenantID
 }
 
 func WithIdentity(ctx context.Context, id RequestIdentity) context.Context {
