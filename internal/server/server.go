@@ -292,8 +292,10 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
+	hasFilter := false
 	filter := store.VolumeAttachmentFilter{}
 	if req.GetVolumeId() != "" {
+		hasFilter = true
 		volumeID, err := parseUUID(req.GetVolumeId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "volume_id: %v", err)
@@ -301,6 +303,7 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		filter.VolumeID = &volumeID
 	}
 	if req.GetAgentId() != "" {
+		hasFilter = true
 		agentID, err := parseUUID(req.GetAgentId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
@@ -308,6 +311,7 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		filter.AgentID = &agentID
 	}
 	if req.GetMcpId() != "" {
+		hasFilter = true
 		mcpID, err := parseUUID(req.GetMcpId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
@@ -315,11 +319,15 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		filter.McpID = &mcpID
 	}
 	if req.GetHookId() != "" {
+		hasFilter = true
 		hookID, err := parseUUID(req.GetHookId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		filter.HookID = &hookID
+	}
+	if !hasFilter {
+		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
 	}
 
 	result, err := s.store.ListVolumeAttachments(ctx, filter, req.GetPageSize(), cursor)
@@ -412,14 +420,14 @@ func (s *Server) ListMcps(ctx context.Context, req *agentsv1.ListMcpsRequest) (*
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
-	filter := store.McpFilter{}
-	if req.GetAgentId() != "" {
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
+	if req.GetAgentId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "agent_id must be provided")
 	}
+	agentID, err := parseUUID(req.GetAgentId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	filter := store.McpFilter{AgentID: &agentID}
 
 	result, err := s.store.ListMcps(ctx, filter, req.GetPageSize(), cursor)
 	if err != nil {
@@ -505,14 +513,14 @@ func (s *Server) ListSkills(ctx context.Context, req *agentsv1.ListSkillsRequest
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
-	filter := store.SkillFilter{}
-	if req.GetAgentId() != "" {
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
+	if req.GetAgentId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "agent_id must be provided")
 	}
+	agentID, err := parseUUID(req.GetAgentId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	filter := store.SkillFilter{AgentID: &agentID}
 
 	result, err := s.store.ListSkills(ctx, filter, req.GetPageSize(), cursor)
 	if err != nil {
@@ -609,14 +617,14 @@ func (s *Server) ListHooks(ctx context.Context, req *agentsv1.ListHooksRequest) 
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
-	filter := store.HookFilter{}
-	if req.GetAgentId() != "" {
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
+	if req.GetAgentId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "agent_id must be provided")
 	}
+	agentID, err := parseUUID(req.GetAgentId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	filter := store.HookFilter{AgentID: &agentID}
 
 	result, err := s.store.ListHooks(ctx, filter, req.GetPageSize(), cursor)
 	if err != nil {
@@ -745,8 +753,10 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
+	hasFilter := false
 	filter := store.EnvFilter{}
 	if req.GetAgentId() != "" {
+		hasFilter = true
 		agentID, err := parseUUID(req.GetAgentId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
@@ -754,6 +764,7 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 		filter.AgentID = &agentID
 	}
 	if req.GetMcpId() != "" {
+		hasFilter = true
 		mcpID, err := parseUUID(req.GetMcpId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
@@ -761,11 +772,15 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 		filter.McpID = &mcpID
 	}
 	if req.GetHookId() != "" {
+		hasFilter = true
 		hookID, err := parseUUID(req.GetHookId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		filter.HookID = &hookID
+	}
+	if !hasFilter {
+		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
 	}
 
 	result, err := s.store.ListEnvs(ctx, filter, req.GetPageSize(), cursor)
@@ -867,8 +882,10 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
+	hasFilter := false
 	filter := store.InitScriptFilter{}
 	if req.GetAgentId() != "" {
+		hasFilter = true
 		agentID, err := parseUUID(req.GetAgentId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
@@ -876,6 +893,7 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 		filter.AgentID = &agentID
 	}
 	if req.GetMcpId() != "" {
+		hasFilter = true
 		mcpID, err := parseUUID(req.GetMcpId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
@@ -883,11 +901,15 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 		filter.McpID = &mcpID
 	}
 	if req.GetHookId() != "" {
+		hasFilter = true
 		hookID, err := parseUUID(req.GetHookId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		filter.HookID = &hookID
+	}
+	if !hasFilter {
+		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
 	}
 
 	result, err := s.store.ListInitScripts(ctx, filter, req.GetPageSize(), cursor)
