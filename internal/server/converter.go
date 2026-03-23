@@ -33,6 +33,7 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Description:   agent.Description,
 		Configuration: agent.Configuration,
 		Image:         agent.Image,
+		InitImage:     agent.InitImage,
 		Resources:     toProtoComputeResources(agent.Resources),
 	}
 }

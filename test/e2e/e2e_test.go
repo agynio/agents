@@ -43,10 +43,12 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "First agent " + testID,
 			Configuration:  "config-alpha",
 			Image:          "agent-image:latest",
+			InitImage:      "ghcr.io/agynio/agent-init-codex:v1.0.0",
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID1 := agentResp1.Agent.Meta.Id
+		require.Equal(t, "ghcr.io/agynio/agent-init-codex:v1.0.0", agentResp1.Agent.InitImage)
 
 		agentResp2, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			OrganizationId: testOrganizationID,
@@ -62,11 +64,13 @@ func TestAgentsServiceE2E(t *testing.T) {
 		agentID2 := agentResp2.Agent.Meta.Id
 
 		updatedAgentResp, err := client.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
-			Id:   agentID1,
-			Name: proto.String("Agent Alpha Updated " + testID),
+			Id:        agentID1,
+			Name:      proto.String("Agent Alpha Updated " + testID),
+			InitImage: proto.String("ghcr.io/agynio/agent-init-codex:v1.0.1"),
 		})
 		require.NoError(t, err)
 		require.Equal(t, "Agent Alpha Updated "+testID, updatedAgentResp.Agent.Name)
+		require.Equal(t, "ghcr.io/agynio/agent-init-codex:v1.0.1", updatedAgentResp.Agent.InitImage)
 
 		listAgentsResp1, err := client.ListAgents(ctx, &agentsv1.ListAgentsRequest{OrganizationId: testOrganizationID, PageSize: 1})
 		require.NoError(t, err)
