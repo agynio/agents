@@ -1,0 +1,2 @@
+ALTER TABLE agents
+    ADD COLUMN init_image TEXT NOT NULL DEFAULT '';

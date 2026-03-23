@@ -28,6 +28,7 @@ type Agent struct {
 	Description    string
 	Configuration  string
 	Image          string
+	InitImage      string
 	Resources      ComputeResources
 }
 
@@ -102,6 +103,7 @@ type AgentInput struct {
 	Description   string
 	Configuration string
 	Image         string
+	InitImage     string
 	Resources     ComputeResources
 }
 
@@ -112,6 +114,7 @@ type AgentUpdate struct {
 	Description   *string
 	Configuration *string
 	Image         *string
+	InitImage     *string
 	Resources     *ComputeResources
 }
 

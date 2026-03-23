@@ -38,6 +38,7 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		Description:   req.GetDescription(),
 		Configuration: req.GetConfiguration(),
 		Image:         req.GetImage(),
+		InitImage:     req.GetInitImage(),
 		Resources:     resources,
 	})
 	if err != nil {
@@ -63,7 +64,7 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.Resources == nil {
+	if req.Name == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.Resources == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 
@@ -94,6 +95,10 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if req.Image != nil {
 		value := req.GetImage()
 		update.Image = &value
+	}
+	if req.InitImage != nil {
+		value := req.GetInitImage()
+		update.InitImage = &value
 	}
 	if req.Resources != nil {
 		resources := toStoreComputeResources(req.GetResources())

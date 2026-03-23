@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	agentColumns            = `id, organization_id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
+	agentColumns            = `id, organization_id, name, role, model, description, configuration, image, init_image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
 	volumeColumns           = `id, organization_id, persistent, mount_path, size, description, created_at, updated_at`
 	volumeAttachmentColumns = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	mcpColumns              = `id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
@@ -58,6 +58,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.Description,
 		&agent.Configuration,
 		&agent.Image,
+		&agent.InitImage,
 		&agent.Resources.RequestsCPU,
 		&agent.Resources.RequestsMemory,
 		&agent.Resources.LimitsCPU,
@@ -220,8 +221,8 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 
 func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input AgentInput) (Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO agents (organization_id, name, role, model, description, configuration, image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		fmt.Sprintf(`INSERT INTO agents (organization_id, name, role, model, description, configuration, image, init_image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING %s`, agentColumns),
 		organizationID,
 		input.Name,
@@ -230,6 +231,7 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		input.Description,
 		input.Configuration,
 		input.Image,
+		input.InitImage,
 		input.Resources.RequestsCPU,
 		input.Resources.RequestsMemory,
 		input.Resources.LimitsCPU,
@@ -276,6 +278,9 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 	}
 	if update.Image != nil {
 		builder.add("image", *update.Image)
+	}
+	if update.InitImage != nil {
+		builder.add("init_image", *update.InitImage)
 	}
 	if update.Resources != nil {
 		builder.add("resources_requests_cpu", update.Resources.RequestsCPU)
