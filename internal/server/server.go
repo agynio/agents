@@ -26,15 +26,15 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	modelID, err := parseUUID(req.GetModel())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
+	model := req.GetModel()
+	if model == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "model: value is empty")
 	}
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
 		Name:          req.GetName(),
 		Role:          req.GetRole(),
-		Model:         modelID,
+		Model:         model,
 		Description:   req.GetDescription(),
 		Configuration: req.GetConfiguration(),
 		Image:         req.GetImage(),
@@ -78,11 +78,11 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 		update.Role = &value
 	}
 	if req.Model != nil {
-		modelID, err := parseUUID(req.GetModel())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
+		value := req.GetModel()
+		if value == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "model: value is empty")
 		}
-		update.Model = &modelID
+		update.Model = &value
 	}
 	if req.Description != nil {
 		value := req.GetDescription()
