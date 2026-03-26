@@ -24,7 +24,7 @@ type Agent struct {
 	OrganizationID uuid.UUID
 	Name           string
 	Role           string
-	Model          string
+	Model          uuid.UUID
 	Description    string
 	Configuration  string
 	Image          string
@@ -99,7 +99,7 @@ type InitScript struct {
 type AgentInput struct {
 	Name          string
 	Role          string
-	Model         string
+	Model         uuid.UUID
 	Description   string
 	Configuration string
 	Image         string
@@ -110,7 +110,7 @@ type AgentInput struct {
 type AgentUpdate struct {
 	Name          *string
 	Role          *string
-	Model         *string
+	Model         *uuid.UUID
 	Description   *string
 	Configuration *string
 	Image         *string
