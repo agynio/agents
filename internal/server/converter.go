@@ -24,17 +24,17 @@ func toProtoComputeResources(resources store.ComputeResources) *agentsv1.Compute
 }
 
 func toProtoAgent(agent store.Agent) *agentsv1.Agent {
-	// TODO: Populate OrganizationId once included in Agent response proto.
 	return &agentsv1.Agent{
-		Meta:          toProtoEntityMeta(agent.Meta),
-		Name:          agent.Name,
-		Role:          agent.Role,
-		Model:         agent.Model.String(),
-		Description:   agent.Description,
-		Configuration: agent.Configuration,
-		Image:         agent.Image,
-		InitImage:     agent.InitImage,
-		Resources:     toProtoComputeResources(agent.Resources),
+		Meta:           toProtoEntityMeta(agent.Meta),
+		OrganizationId: agent.OrganizationID.String(),
+		Name:           agent.Name,
+		Role:           agent.Role,
+		Model:          agent.Model.String(),
+		Description:    agent.Description,
+		Configuration:  agent.Configuration,
+		Image:          agent.Image,
+		InitImage:      agent.InitImage,
+		Resources:      toProtoComputeResources(agent.Resources),
 	}
 }
 
