@@ -11,8 +11,10 @@ import (
 	"syscall"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
+	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/agynio/agents/internal/config"
 	"github.com/agynio/agents/internal/db"
@@ -50,7 +52,16 @@ func run() error {
 	}
 
 	grpcServer := grpc.NewServer()
-	agentsv1.RegisterAgentsServiceServer(grpcServer, server.New(store.New(pool)))
+	authzConn, err := grpc.NewClient(cfg.AuthorizationServiceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("connect to authorization service: %w", err)
+	}
+	defer func() {
+		_ = authzConn.Close()
+	}()
+	authzClient := authorizationv1.NewAuthorizationServiceClient(authzConn)
+
+	agentsv1.RegisterAgentsServiceServer(grpcServer, server.New(store.New(pool), authzClient))
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddress)
 	if err != nil {
