@@ -157,6 +157,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description: "Mcp " + testID,
 		})
 		require.NoError(t, err)
+		require.Equal(t, mcpName(testID), mcpResp.Mcp.Name)
 		mcpID := mcpResp.Mcp.Meta.Id
 
 		updatedMcpResp, err := client.UpdateMcp(ctx, &agentsv1.UpdateMcpRequest{
