@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,12 +150,14 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
+			Name:        mcpName(testID),
 			Image:       "mcp-image:latest",
 			Command:     "mcp --run",
 			Resources:   baseResources(),
 			Description: "Mcp " + testID,
 		})
 		require.NoError(t, err)
+		require.Equal(t, mcpName(testID), mcpResp.Mcp.Name)
 		mcpID := mcpResp.Mcp.Meta.Id
 
 		updatedMcpResp, err := client.UpdateMcp(ctx, &agentsv1.UpdateMcpRequest{
@@ -272,6 +275,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
+			Name:        mcpName(testID),
 			Image:       "mcp-image:latest",
 			Command:     "mcp --env",
 			Resources:   baseResources(),
@@ -364,6 +368,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
+			Name:        mcpName(testID),
 			Image:       "mcp-image:latest",
 			Command:     "mcp --init",
 			Resources:   baseResources(),
@@ -452,6 +457,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
+			Name:        mcpName(testID),
 			Image:       "mcp-image:latest",
 			Command:     "mcp --attach",
 			Resources:   baseResources(),
@@ -553,6 +559,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		_, err = client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     uuid.NewString(),
+			Name:        mcpName("negative"),
 			Image:       "mcp-image:latest",
 			Command:     "mcp",
 			Resources:   baseResources(),
@@ -575,6 +582,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,
+			Name:        mcpName("negative_agent"),
 			Image:       "mcp-image:latest",
 			Command:     "mcp",
 			Resources:   baseResources(),
@@ -618,6 +626,10 @@ func baseResources() *agentsv1.ComputeResources {
 		LimitsCpu:      "200m",
 		LimitsMemory:   "256Mi",
 	}
+}
+
+func mcpName(testID string) string {
+	return "mcp_" + strings.ReplaceAll(strings.ToLower(testID), "-", "")
 }
 
 type metaGetter interface {

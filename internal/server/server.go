@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	"github.com/agynio/agents/internal/store"
@@ -17,6 +18,10 @@ type Server struct {
 	store *store.Store
 	authz AuthorizationWriter
 }
+
+const maxMcpNameLength = 63
+
+var mcpNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
 func New(store *store.Store, authz AuthorizationWriter) *Server {
 	if store == nil {
@@ -378,9 +383,14 @@ func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) 
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 	}
+	name := req.GetName()
+	if err := validateMcpName(name); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+	}
 	resources := toStoreComputeResources(req.GetResources())
 	mcp, err := s.store.CreateMcp(ctx, store.McpInput{
 		AgentID:     agentID,
+		Name:        name,
 		Image:       req.GetImage(),
 		Command:     req.GetCommand(),
 		Resources:   resources,
@@ -986,6 +996,19 @@ func parseUUID(value string) (uuid.UUID, error) {
 		return uuid.UUID{}, err
 	}
 	return id, nil
+}
+
+func validateMcpName(name string) error {
+	if name == "" {
+		return fmt.Errorf("value is empty")
+	}
+	if len(name) > maxMcpNameLength {
+		return fmt.Errorf("must be at most %d characters", maxMcpNameLength)
+	}
+	if !mcpNamePattern.MatchString(name) {
+		return fmt.Errorf("must match %s", mcpNamePattern.String())
+	}
+	return nil
 }
 
 func toStoreComputeResources(resources *agentsv1.ComputeResources) store.ComputeResources {

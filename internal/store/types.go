@@ -52,6 +52,7 @@ type VolumeAttachment struct {
 type Mcp struct {
 	Meta        EntityMeta
 	AgentID     uuid.UUID
+	Name        string
 	Image       string
 	Command     string
 	Resources   ComputeResources
@@ -141,6 +142,7 @@ type VolumeAttachmentInput struct {
 
 type McpInput struct {
 	AgentID     uuid.UUID
+	Name        string
 	Image       string
 	Command     string
 	Resources   ComputeResources

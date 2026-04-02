@@ -73,6 +73,7 @@ func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
 	return &agentsv1.Mcp{
 		Meta:        toProtoEntityMeta(mcp.Meta),
 		AgentId:     mcp.AgentID.String(),
+		Name:        mcp.Name,
 		Image:       mcp.Image,
 		Command:     mcp.Command,
 		Resources:   toProtoComputeResources(mcp.Resources),

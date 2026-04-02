@@ -16,7 +16,7 @@ const (
 	agentColumns            = `id, organization_id, name, role, model, description, configuration, image, init_image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
 	volumeColumns           = `id, organization_id, persistent, mount_path, size, description, created_at, updated_at`
 	volumeAttachmentColumns = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
-	mcpColumns              = `id, agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
+	mcpColumns              = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
 	skillColumns            = `id, agent_id, name, body, description, created_at, updated_at`
 	hookColumns             = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
 	envColumns              = `id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at`
@@ -115,6 +115,7 @@ func scanMcp(row pgx.Row) (Mcp, error) {
 	if err := row.Scan(
 		&mcp.Meta.ID,
 		&mcp.AgentID,
+		&mcp.Name,
 		&mcp.Image,
 		&mcp.Command,
 		&mcp.Resources.RequestsCPU,
@@ -521,10 +522,11 @@ func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachme
 
 func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO mcps (agent_id, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		fmt.Sprintf(`INSERT INTO mcps (agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING %s`, mcpColumns),
 		input.AgentID,
+		input.Name,
 		input.Image,
 		input.Command,
 		input.Resources.RequestsCPU,
@@ -536,8 +538,13 @@ func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 	mcp, err := scanMcp(row)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return Mcp{}, ForeignKeyViolation("mcp")
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23503":
+				return Mcp{}, ForeignKeyViolation("mcp")
+			case "23505":
+				return Mcp{}, AlreadyExists("mcp")
+			}
 		}
 		return Mcp{}, err
 	}
