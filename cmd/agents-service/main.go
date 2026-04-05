@@ -67,9 +67,9 @@ func run() error {
 	defer func() {
 		_ = identityConn.Close()
 	}()
-	identityClient := server.NewIdentityWriter(identityConn)
+	identity := server.NewIdentityWriter(identityConn)
 
-	agentsv1.RegisterAgentsServiceServer(grpcServer, server.New(store.New(pool), authzClient, identityClient))
+	agentsv1.RegisterAgentsServiceServer(grpcServer, server.New(store.New(pool), authzClient, identity))
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddress)
 	if err != nil {
