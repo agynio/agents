@@ -49,6 +49,14 @@ type VolumeAttachment struct {
 	HookID   *uuid.UUID
 }
 
+type ImagePullSecretAttachment struct {
+	Meta              EntityMeta
+	ImagePullSecretID uuid.UUID
+	AgentID           *uuid.UUID
+	McpID             *uuid.UUID
+	HookID            *uuid.UUID
+}
+
 type Mcp struct {
 	Meta        EntityMeta
 	AgentID     uuid.UUID
@@ -140,6 +148,13 @@ type VolumeAttachmentInput struct {
 	HookID   *uuid.UUID
 }
 
+type ImagePullSecretAttachmentInput struct {
+	ImagePullSecretID uuid.UUID
+	AgentID           *uuid.UUID
+	McpID             *uuid.UUID
+	HookID            *uuid.UUID
+}
+
 type McpInput struct {
 	AgentID     uuid.UUID
 	Name        string
@@ -227,6 +242,13 @@ type VolumeAttachmentFilter struct {
 	HookID   *uuid.UUID
 }
 
+type ImagePullSecretAttachmentFilter struct {
+	ImagePullSecretID *uuid.UUID
+	AgentID           *uuid.UUID
+	McpID             *uuid.UUID
+	HookID            *uuid.UUID
+}
+
 type McpFilter struct {
 	AgentID *uuid.UUID
 }
@@ -268,6 +290,11 @@ type VolumeListResult struct {
 type VolumeAttachmentListResult struct {
 	VolumeAttachments []VolumeAttachment
 	NextCursor        *PageCursor
+}
+
+type ImagePullSecretAttachmentListResult struct {
+	ImagePullSecretAttachments []ImagePullSecretAttachment
+	NextCursor                 *PageCursor
 }
 
 type McpListResult struct {

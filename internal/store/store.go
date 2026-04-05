@@ -13,14 +13,15 @@ import (
 )
 
 const (
-	agentColumns            = `id, organization_id, name, role, model, description, configuration, image, init_image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
-	volumeColumns           = `id, organization_id, persistent, mount_path, size, description, created_at, updated_at`
-	volumeAttachmentColumns = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
-	mcpColumns              = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
-	skillColumns            = `id, agent_id, name, body, description, created_at, updated_at`
-	hookColumns             = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
-	envColumns              = `id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at`
-	initScriptColumns       = `id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at`
+	agentColumns                     = `id, organization_id, name, role, model, description, configuration, image, init_image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
+	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, created_at, updated_at`
+	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
+	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
+	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
+	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
+	hookColumns                      = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
+	envColumns                       = `id, name, description, agent_id, mcp_id, hook_id, value, secret_id, created_at, updated_at`
+	initScriptColumns                = `id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at`
 )
 
 type Store struct {
@@ -103,6 +104,28 @@ func scanVolumeAttachment(row pgx.Row) (VolumeAttachment, error) {
 		&attachment.Meta.UpdatedAt,
 	); err != nil {
 		return VolumeAttachment{}, err
+	}
+	attachment.AgentID = uuidPtrFromPg(agentID)
+	attachment.McpID = uuidPtrFromPg(mcpID)
+	attachment.HookID = uuidPtrFromPg(hookID)
+	return attachment, nil
+}
+
+func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, error) {
+	var attachment ImagePullSecretAttachment
+	var agentID pgtype.UUID
+	var mcpID pgtype.UUID
+	var hookID pgtype.UUID
+	if err := row.Scan(
+		&attachment.Meta.ID,
+		&attachment.ImagePullSecretID,
+		&agentID,
+		&mcpID,
+		&hookID,
+		&attachment.Meta.CreatedAt,
+		&attachment.Meta.UpdatedAt,
+	); err != nil {
+		return ImagePullSecretAttachment{}, err
 	}
 	attachment.AgentID = uuidPtrFromPg(agentID)
 	attachment.McpID = uuidPtrFromPg(mcpID)
@@ -518,6 +541,89 @@ func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachme
 		return VolumeAttachmentListResult{}, err
 	}
 	return VolumeAttachmentListResult{VolumeAttachments: attachments, NextCursor: nextCursor}, nil
+}
+
+func (s *Store) CreateImagePullSecretAttachment(ctx context.Context, input ImagePullSecretAttachmentInput) (ImagePullSecretAttachment, error) {
+	row := s.pool.QueryRow(ctx,
+		fmt.Sprintf(`INSERT INTO image_pull_secret_attachments (image_pull_secret_id, agent_id, mcp_id, hook_id)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING %s`, imagePullSecretAttachmentColumns),
+		input.ImagePullSecretID,
+		input.AgentID,
+		input.McpID,
+		input.HookID,
+	)
+	attachment, err := scanImagePullSecretAttachment(row)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return ImagePullSecretAttachment{}, AlreadyExists("image pull secret attachment")
+			case "23503":
+				return ImagePullSecretAttachment{}, ForeignKeyViolation("image pull secret attachment")
+			}
+		}
+		return ImagePullSecretAttachment{}, err
+	}
+	return attachment, nil
+}
+
+func (s *Store) GetImagePullSecretAttachment(ctx context.Context, id uuid.UUID) (ImagePullSecretAttachment, error) {
+	row := s.pool.QueryRow(ctx,
+		fmt.Sprintf(`SELECT %s FROM image_pull_secret_attachments WHERE id = $1`, imagePullSecretAttachmentColumns),
+		id,
+	)
+	attachment, err := scanImagePullSecretAttachment(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ImagePullSecretAttachment{}, NotFound("image pull secret attachment")
+		}
+		return ImagePullSecretAttachment{}, err
+	}
+	return attachment, nil
+}
+
+func (s *Store) DeleteImagePullSecretAttachment(ctx context.Context, id uuid.UUID) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM image_pull_secret_attachments WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("image pull secret attachment")
+	}
+	return nil
+}
+
+func (s *Store) ListImagePullSecretAttachments(ctx context.Context, filter ImagePullSecretAttachmentFilter, pageSize int32, cursor *PageCursor) (ImagePullSecretAttachmentListResult, error) {
+	clauses := []string{}
+	args := []any{}
+	if filter.ImagePullSecretID != nil {
+		clauses, args = appendClause(clauses, args, "image_pull_secret_id = $%d", *filter.ImagePullSecretID)
+	}
+	if filter.AgentID != nil {
+		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+	if filter.McpID != nil {
+		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
+	}
+	if filter.HookID != nil {
+		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
+	}
+
+	attachments, nextCursor, err := listEntities(ctx, s.pool,
+		fmt.Sprintf("SELECT %s FROM image_pull_secret_attachments", imagePullSecretAttachmentColumns),
+		clauses,
+		args,
+		cursor,
+		pageSize,
+		scanImagePullSecretAttachment,
+		func(attachment ImagePullSecretAttachment) uuid.UUID { return attachment.Meta.ID },
+	)
+	if err != nil {
+		return ImagePullSecretAttachmentListResult{}, err
+	}
+	return ImagePullSecretAttachmentListResult{ImagePullSecretAttachments: attachments, NextCursor: nextCursor}, nil
 }
 
 func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {

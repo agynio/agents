@@ -550,6 +550,105 @@ func TestAgentsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("ImagePullSecretAttachments", func(t *testing.T) {
+		testID := uuid.NewString()
+		imagePullSecretID := uuid.NewString()
+		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
+			OrganizationId: testOrganizationID,
+			Name:           "Image Pull Secret Agent " + testID,
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "Image pull secret agent " + testID,
+			Configuration:  "config-image-pull-secret",
+			Image:          "agent-image:latest",
+			Resources:      baseResources(),
+		})
+		require.NoError(t, err)
+		agentID := agentResp.Agent.Meta.Id
+
+		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
+			AgentId:     agentID,
+			Name:        mcpName(testID),
+			Image:       "mcp-image:latest",
+			Command:     "mcp --image-pull",
+			Resources:   baseResources(),
+			Description: "Image pull secret mcp " + testID,
+		})
+		require.NoError(t, err)
+		mcpID := mcpResp.Mcp.Meta.Id
+
+		hookResp, err := client.CreateHook(ctx, &agentsv1.CreateHookRequest{
+			AgentId:     agentID,
+			Event:       "image_pull_event",
+			Function:    "imagePullHandler",
+			Image:       "hook-image:latest",
+			Resources:   baseResources(),
+			Description: "Image pull secret hook " + testID,
+		})
+		require.NoError(t, err)
+		hookID := hookResp.Hook.Meta.Id
+
+		attachmentResp, err := client.CreateImagePullSecretAttachment(ctx, &agentsv1.CreateImagePullSecretAttachmentRequest{
+			ImagePullSecretId: imagePullSecretID,
+			Target:            &agentsv1.CreateImagePullSecretAttachmentRequest_AgentId{AgentId: agentID},
+		})
+		require.NoError(t, err)
+		attachmentID := attachmentResp.ImagePullSecretAttachment.Meta.Id
+
+		mcpAttachmentResp, err := client.CreateImagePullSecretAttachment(ctx, &agentsv1.CreateImagePullSecretAttachmentRequest{
+			ImagePullSecretId: imagePullSecretID,
+			Target:            &agentsv1.CreateImagePullSecretAttachmentRequest_McpId{McpId: mcpID},
+		})
+		require.NoError(t, err)
+		mcpAttachmentID := mcpAttachmentResp.ImagePullSecretAttachment.Meta.Id
+
+		hookAttachmentResp, err := client.CreateImagePullSecretAttachment(ctx, &agentsv1.CreateImagePullSecretAttachmentRequest{
+			ImagePullSecretId: imagePullSecretID,
+			Target:            &agentsv1.CreateImagePullSecretAttachmentRequest_HookId{HookId: hookID},
+		})
+		require.NoError(t, err)
+		hookAttachmentID := hookAttachmentResp.ImagePullSecretAttachment.Meta.Id
+
+		_, err = client.CreateImagePullSecretAttachment(ctx, &agentsv1.CreateImagePullSecretAttachmentRequest{
+			ImagePullSecretId: imagePullSecretID,
+			Target:            &agentsv1.CreateImagePullSecretAttachmentRequest_AgentId{AgentId: agentID},
+		})
+		requireStatusCode(t, err, codes.AlreadyExists)
+
+		getAttachmentResp, err := client.GetImagePullSecretAttachment(ctx, &agentsv1.GetImagePullSecretAttachmentRequest{Id: attachmentID})
+		require.NoError(t, err)
+		require.Equal(t, imagePullSecretID, getAttachmentResp.ImagePullSecretAttachment.ImagePullSecretId)
+		require.Equal(t, agentID, getAttachmentResp.ImagePullSecretAttachment.GetAgentId())
+
+		getMcpAttachmentResp, err := client.GetImagePullSecretAttachment(ctx, &agentsv1.GetImagePullSecretAttachmentRequest{Id: mcpAttachmentID})
+		require.NoError(t, err)
+		require.Equal(t, imagePullSecretID, getMcpAttachmentResp.ImagePullSecretAttachment.ImagePullSecretId)
+		require.Equal(t, mcpID, getMcpAttachmentResp.ImagePullSecretAttachment.GetMcpId())
+
+		getHookAttachmentResp, err := client.GetImagePullSecretAttachment(ctx, &agentsv1.GetImagePullSecretAttachmentRequest{Id: hookAttachmentID})
+		require.NoError(t, err)
+		require.Equal(t, imagePullSecretID, getHookAttachmentResp.ImagePullSecretAttachment.ImagePullSecretId)
+		require.Equal(t, hookID, getHookAttachmentResp.ImagePullSecretAttachment.GetHookId())
+
+		attachments := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{ImagePullSecretId: imagePullSecretID})
+		require.True(t, hasID(attachments, attachmentID))
+		require.True(t, hasID(attachments, mcpAttachmentID))
+		require.True(t, hasID(attachments, hookAttachmentID))
+
+		_, err = client.DeleteImagePullSecretAttachment(ctx, &agentsv1.DeleteImagePullSecretAttachmentRequest{Id: hookAttachmentID})
+		require.NoError(t, err)
+		_, err = client.DeleteImagePullSecretAttachment(ctx, &agentsv1.DeleteImagePullSecretAttachmentRequest{Id: mcpAttachmentID})
+		require.NoError(t, err)
+		_, err = client.DeleteImagePullSecretAttachment(ctx, &agentsv1.DeleteImagePullSecretAttachmentRequest{Id: attachmentID})
+		require.NoError(t, err)
+		_, err = client.DeleteHook(ctx, &agentsv1.DeleteHookRequest{Id: hookID})
+		require.NoError(t, err)
+		_, err = client.DeleteMcp(ctx, &agentsv1.DeleteMcpRequest{Id: mcpID})
+		require.NoError(t, err)
+		_, err = client.DeleteAgent(ctx, &agentsv1.DeleteAgentRequest{Id: agentID})
+		require.NoError(t, err)
+	})
+
 	t.Run("NegativePaths", func(t *testing.T) {
 		_, err := client.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: uuid.NewString()})
 		requireStatusCode(t, err, codes.NotFound)
@@ -752,6 +851,20 @@ func listVolumeAttachments(ctx context.Context, t *testing.T, client agentsv1.Ag
 			return nil, "", err
 		}
 		return resp.VolumeAttachments, resp.NextPageToken, nil
+	})
+}
+
+func listImagePullSecretAttachments(ctx context.Context, t *testing.T, client agentsv1.AgentsServiceClient, request *agentsv1.ListImagePullSecretAttachmentsRequest) []*agentsv1.ImagePullSecretAttachment {
+	baseRequest := *request
+	return listPaged(t, "image pull secret attachment", func(pageToken string) ([]*agentsv1.ImagePullSecretAttachment, string, error) {
+		req := baseRequest
+		req.PageSize = listPageSize
+		req.PageToken = pageToken
+		resp, err := client.ListImagePullSecretAttachments(ctx, &req)
+		if err != nil {
+			return nil, "", err
+		}
+		return resp.ImagePullSecretAttachments, resp.NextPageToken, nil
 	})
 }
 

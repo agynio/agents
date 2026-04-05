@@ -378,6 +378,118 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 	return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: attachments, NextPageToken: nextToken}, nil
 }
 
+func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agentsv1.CreateImagePullSecretAttachmentRequest) (*agentsv1.CreateImagePullSecretAttachmentResponse, error) {
+	imagePullSecretID, err := parseUUID(req.GetImagePullSecretId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "image_pull_secret_id: %v", err)
+	}
+
+	input := store.ImagePullSecretAttachmentInput{ImagePullSecretID: imagePullSecretID}
+	switch target := req.GetTarget().(type) {
+	case *agentsv1.CreateImagePullSecretAttachmentRequest_AgentId:
+		id, err := parseUUID(target.AgentId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		input.AgentID = &id
+	case *agentsv1.CreateImagePullSecretAttachmentRequest_McpId:
+		id, err := parseUUID(target.McpId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		input.McpID = &id
+	case *agentsv1.CreateImagePullSecretAttachmentRequest_HookId:
+		id, err := parseUUID(target.HookId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
+		}
+		input.HookID = &id
+	default:
+		return nil, status.Error(codes.InvalidArgument, "target must be specified")
+	}
+
+	attachment, err := s.store.CreateImagePullSecretAttachment(ctx, input)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.CreateImagePullSecretAttachmentResponse{ImagePullSecretAttachment: toProtoImagePullSecretAttachment(attachment)}, nil
+}
+
+func (s *Server) GetImagePullSecretAttachment(ctx context.Context, req *agentsv1.GetImagePullSecretAttachmentRequest) (*agentsv1.GetImagePullSecretAttachmentResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	attachment, err := s.store.GetImagePullSecretAttachment(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.GetImagePullSecretAttachmentResponse{ImagePullSecretAttachment: toProtoImagePullSecretAttachment(attachment)}, nil
+}
+
+func (s *Server) DeleteImagePullSecretAttachment(ctx context.Context, req *agentsv1.DeleteImagePullSecretAttachmentRequest) (*agentsv1.DeleteImagePullSecretAttachmentResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if err := s.store.DeleteImagePullSecretAttachment(ctx, id); err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.DeleteImagePullSecretAttachmentResponse{}, nil
+}
+
+func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest) (*agentsv1.ListImagePullSecretAttachmentsResponse, error) {
+	cursor, err := decodePageCursor(req.GetPageToken())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
+	}
+
+	hasFilter := false
+	filter := store.ImagePullSecretAttachmentFilter{}
+	if req.GetImagePullSecretId() != "" {
+		hasFilter = true
+		imagePullSecretID, err := parseUUID(req.GetImagePullSecretId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "image_pull_secret_id: %v", err)
+		}
+		filter.ImagePullSecretID = &imagePullSecretID
+	}
+	if req.GetAgentId() != "" {
+		hasFilter = true
+		agentID, err := parseUUID(req.GetAgentId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		filter.AgentID = &agentID
+	}
+	if req.GetMcpId() != "" {
+		hasFilter = true
+		mcpID, err := parseUUID(req.GetMcpId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		filter.McpID = &mcpID
+	}
+	if req.GetHookId() != "" {
+		hasFilter = true
+		hookID, err := parseUUID(req.GetHookId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
+		}
+		filter.HookID = &hookID
+	}
+	if !hasFilter {
+		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
+	}
+
+	result, err := s.store.ListImagePullSecretAttachments(ctx, filter, req.GetPageSize(), cursor)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	attachments, nextToken := mapListResult(result.ImagePullSecretAttachments, result.NextCursor, toProtoImagePullSecretAttachment)
+	return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: attachments, NextPageToken: nextToken}, nil
+}
+
 func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) (*agentsv1.CreateMcpResponse, error) {
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
