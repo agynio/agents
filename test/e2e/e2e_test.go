@@ -19,7 +19,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const listPageSize int32 = 50
+const (
+	listPageSize  int32 = 50
+	testInitImage       = "ghcr.io/agynio/agent-init-codex:v1.0.0"
+)
 
 func TestAgentsServiceE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -43,12 +46,12 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "First agent " + testID,
 			Configuration:  "config-alpha",
 			Image:          "agent-image:latest",
-			InitImage:      "ghcr.io/agynio/agent-init-codex:v1.0.0",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID1 := agentResp1.Agent.Meta.Id
-		require.Equal(t, "ghcr.io/agynio/agent-init-codex:v1.0.0", agentResp1.Agent.InitImage)
+		require.Equal(t, testInitImage, agentResp1.Agent.InitImage)
 
 		agentResp2, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
 			OrganizationId: testOrganizationID,
@@ -58,6 +61,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Second agent " + testID,
 			Configuration:  "config-beta",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -71,6 +75,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Third agent " + testID,
 			Configuration:  "config-gamma",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -143,6 +148,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Mcp agent " + testID,
 			Configuration:  "config-mcp",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -186,6 +192,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Skill agent " + testID,
 			Configuration:  "config-skill",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -226,6 +233,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Hook agent " + testID,
 			Configuration:  "config-hook",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -268,6 +276,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Env agent " + testID,
 			Configuration:  "config-env",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -361,6 +370,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Init agent " + testID,
 			Configuration:  "config-init",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -450,6 +460,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Attachment agent " + testID,
 			Configuration:  "config-attachment",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -561,6 +572,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "Image pull secret agent " + testID,
 			Configuration:  "config-image-pull-secret",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
@@ -650,7 +662,20 @@ func TestAgentsServiceE2E(t *testing.T) {
 	})
 
 	t.Run("NegativePaths", func(t *testing.T) {
-		_, err := client.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: uuid.NewString()})
+		_, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
+			OrganizationId: testOrganizationID,
+			Name:           "Missing Init Image",
+			Role:           "agent",
+			Model:          uuid.NewString(),
+			Description:    "negative",
+			Configuration:  "config-negative",
+			Image:          "agent-image:latest",
+			InitImage:      "",
+			Resources:      baseResources(),
+		})
+		requireStatusCode(t, err, codes.InvalidArgument)
+
+		_, err = client.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: uuid.NewString()})
 		requireStatusCode(t, err, codes.NotFound)
 
 		_, err = client.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{Id: uuid.NewString()})
@@ -674,10 +699,17 @@ func TestAgentsServiceE2E(t *testing.T) {
 			Description:    "negative",
 			Configuration:  "config-negative",
 			Image:          "agent-image:latest",
+			InitImage:      testInitImage,
 			Resources:      baseResources(),
 		})
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
+
+		_, err = client.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
+			Id:        agentID,
+			InitImage: proto.String(""),
+		})
+		requireStatusCode(t, err, codes.InvalidArgument)
 
 		mcpResp, err := client.CreateMcp(ctx, &agentsv1.CreateMcpRequest{
 			AgentId:     agentID,

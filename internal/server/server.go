@@ -55,6 +55,9 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
 	}
+	if req.GetInitImage() == "" {
+		return nil, status.Error(codes.InvalidArgument, "init_image is required")
+	}
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
 		Name:          req.GetName(),
@@ -108,6 +111,9 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	}
 	if req.Name == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.Resources == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+	if req.InitImage != nil && req.GetInitImage() == "" {
+		return nil, status.Error(codes.InvalidArgument, "init_image must not be empty")
 	}
 
 	update := store.AgentUpdate{}
