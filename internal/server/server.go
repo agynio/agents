@@ -122,7 +122,13 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	}
 	if nickname != "" {
 		if err := s.setAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID, nickname); err != nil {
+			// Identity records are not deletable; best-effort cleanup removes the nickname.
+			cleanupErr := s.removeAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID)
+			if cleanupErr != nil && status.Code(cleanupErr) == codes.NotFound {
+				cleanupErr = nil
+			}
 			rollbackErr := errors.Join(
+				cleanupErr,
 				s.removeAgentMembership(ctx, agent.Meta.ID, agent.OrganizationID),
 				s.store.DeleteAgent(ctx, agent.Meta.ID),
 			)
