@@ -44,13 +44,17 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 
 func toProtoVolume(volume store.Volume) *agentsv1.Volume {
 	// TODO: Populate OrganizationId once included in Volume response proto.
-	return &agentsv1.Volume{
+	protoVolume := &agentsv1.Volume{
 		Meta:        toProtoEntityMeta(volume.Meta),
 		Persistent:  volume.Persistent,
 		MountPath:   volume.MountPath,
 		Size:        volume.Size,
 		Description: volume.Description,
 	}
+	if volume.TTL != nil {
+		protoVolume.Ttl = volume.TTL
+	}
+	return protoVolume
 }
 
 func toProtoVolumeAttachment(attachment store.VolumeAttachment) *agentsv1.VolumeAttachment {
