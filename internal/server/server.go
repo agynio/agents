@@ -50,6 +50,23 @@ func (s *Server) registerAgentIdentity(ctx context.Context, agentID uuid.UUID) e
 	return err
 }
 
+func (s *Server) setAgentNickname(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID, nickname string) error {
+	_, err := s.identity.SetNickname(ctx, &identityv1.SetNicknameRequest{
+		OrganizationId: organizationID.String(),
+		IdentityId:     agentID.String(),
+		Nickname:       nickname,
+	})
+	return err
+}
+
+func (s *Server) removeAgentNickname(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) error {
+	_, err := s.identity.RemoveNickname(ctx, &identityv1.RemoveNicknameRequest{
+		OrganizationId: organizationID.String(),
+		IdentityId:     agentID.String(),
+	})
+	return err
+}
+
 func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentRequest) (*agentsv1.CreateAgentResponse, error) {
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
@@ -69,9 +86,11 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err := validateDurationString(idleTimeout); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "idle_timeout: %v", err)
 	}
+	nickname := req.GetNickname()
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
 		Name:          req.GetName(),
+		Nickname:      nickname,
 		Role:          req.GetRole(),
 		Model:         modelID,
 		Description:   req.GetDescription(),
@@ -101,6 +120,24 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		}
 		return nil, status.Errorf(codes.Internal, "register identity: %v", err)
 	}
+	if nickname != "" {
+		if err := s.setAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID, nickname); err != nil {
+			// Identity records are not deletable; best-effort cleanup removes the nickname.
+			cleanupErr := s.removeAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID)
+			if cleanupErr != nil && status.Code(cleanupErr) == codes.NotFound {
+				cleanupErr = nil
+			}
+			rollbackErr := errors.Join(
+				cleanupErr,
+				s.removeAgentMembership(ctx, agent.Meta.ID, agent.OrganizationID),
+				s.store.DeleteAgent(ctx, agent.Meta.ID),
+			)
+			if rollbackErr != nil {
+				return nil, status.Errorf(codes.Internal, "set nickname: %v; rollback: %v", err, rollbackErr)
+			}
+			return nil, status.Errorf(codes.Internal, "set nickname: %v", err)
+		}
+	}
 	return &agentsv1.CreateAgentResponse{Agent: toProtoAgent(agent)}, nil
 }
 
@@ -121,17 +158,34 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil {
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
 		return nil, status.Error(codes.InvalidArgument, "init_image must not be empty")
 	}
 
+	nicknameProvided := req.Nickname != nil
+	var previousAgent store.Agent
+	var nicknameValue string
+	var nicknameUpdateNeeded bool
+	if nicknameProvided {
+		previousAgent, err = s.store.GetAgent(ctx, id)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		nicknameValue = req.GetNickname()
+		nicknameUpdateNeeded = nicknameValue != previousAgent.Nickname
+	}
+
 	update := store.AgentUpdate{}
 	if req.Name != nil {
 		value := req.GetName()
 		update.Name = &value
+	}
+	if req.Nickname != nil {
+		value := nicknameValue
+		update.Nickname = &value
 	}
 	if req.Role != nil {
 		value := req.GetRole()
@@ -176,6 +230,22 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if nicknameProvided && nicknameUpdateNeeded {
+		var nicknameErr error
+		if nicknameValue == "" {
+			nicknameErr = s.removeAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID)
+		} else {
+			nicknameErr = s.setAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID, nicknameValue)
+		}
+		if nicknameErr != nil {
+			rollbackNickname := previousAgent.Nickname
+			_, rollbackErr := s.store.UpdateAgent(ctx, id, store.AgentUpdate{Nickname: &rollbackNickname})
+			if rollbackErr != nil {
+				return nil, status.Errorf(codes.Internal, "update nickname: %v; rollback: %v", nicknameErr, rollbackErr)
+			}
+			return nil, status.Errorf(codes.Internal, "update nickname: %v", nicknameErr)
+		}
+	}
 	return &agentsv1.UpdateAgentResponse{Agent: toProtoAgent(agent)}, nil
 }
 
@@ -191,10 +261,24 @@ func (s *Server) DeleteAgent(ctx context.Context, req *agentsv1.DeleteAgentReque
 	if err := s.removeAgentMembership(ctx, agent.Meta.ID, agent.OrganizationID); err != nil {
 		return nil, status.Errorf(codes.Internal, "authorization delete failed: %v", err)
 	}
+	removedNickname := false
+	if agent.Nickname != "" {
+		if err := s.removeAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID); err != nil {
+			rollbackErr := s.addAgentMembership(ctx, agent.Meta.ID, agent.OrganizationID)
+			if rollbackErr != nil {
+				return nil, status.Errorf(codes.Internal, "remove nickname: %v; rollback: %v", err, rollbackErr)
+			}
+			return nil, status.Errorf(codes.Internal, "remove nickname: %v", err)
+		}
+		removedNickname = true
+	}
 	if err := s.store.DeleteAgent(ctx, id); err != nil {
 		rollbackErr := s.addAgentMembership(ctx, agent.Meta.ID, agent.OrganizationID)
+		if removedNickname {
+			rollbackErr = errors.Join(rollbackErr, s.setAgentNickname(ctx, agent.Meta.ID, agent.OrganizationID, agent.Nickname))
+		}
 		if rollbackErr != nil {
-			return nil, status.Errorf(codes.Internal, "agent delete failed: %v; authorization rollback failed: %v", err, rollbackErr)
+			return nil, status.Errorf(codes.Internal, "agent delete failed: %v; rollback failed: %v", err, rollbackErr)
 		}
 		return nil, toStatusError(err)
 	}

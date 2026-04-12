@@ -28,6 +28,7 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Meta:           toProtoEntityMeta(agent.Meta),
 		OrganizationId: agent.OrganizationID.String(),
 		Name:           agent.Name,
+		Nickname:       agent.Nickname,
 		Role:           agent.Role,
 		Model:          agent.Model.String(),
 		Description:    agent.Description,

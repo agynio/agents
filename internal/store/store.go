@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	agentColumns                     = `id, organization_id, name, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
+	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
@@ -55,6 +55,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.Meta.ID,
 		&agent.OrganizationID,
 		&agent.Name,
+		&agent.Nickname,
 		&agent.Role,
 		&agent.Model,
 		&agent.Description,
@@ -251,11 +252,12 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 
 func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input AgentInput) (Agent, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO agents (organization_id, name, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING %s`, agentColumns),
 		organizationID,
 		input.Name,
+		input.Nickname,
 		input.Role,
 		input.Model,
 		input.Description,
@@ -294,6 +296,9 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 	builder := updateBuilder{}
 	if update.Name != nil {
 		builder.add("name", *update.Name)
+	}
+	if update.Nickname != nil {
+		builder.add("nickname", *update.Nickname)
 	}
 	if update.Role != nil {
 		builder.add("role", *update.Role)

@@ -23,6 +23,7 @@ type Agent struct {
 	Meta           EntityMeta
 	OrganizationID uuid.UUID
 	Name           string
+	Nickname       string
 	Role           string
 	Model          uuid.UUID
 	Description    string
@@ -109,6 +110,7 @@ type InitScript struct {
 
 type AgentInput struct {
 	Name          string
+	Nickname      string
 	Role          string
 	Model         uuid.UUID
 	Description   string
@@ -121,6 +123,7 @@ type AgentInput struct {
 
 type AgentUpdate struct {
 	Name          *string
+	Nickname      *string
 	Role          *string
 	Model         *uuid.UUID
 	Description   *string

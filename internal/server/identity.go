@@ -9,6 +9,8 @@ import (
 
 type IdentityWriter interface {
 	RegisterIdentity(ctx context.Context, req *identityv1.RegisterIdentityRequest, opts ...grpc.CallOption) (*identityv1.RegisterIdentityResponse, error)
+	SetNickname(ctx context.Context, req *identityv1.SetNicknameRequest, opts ...grpc.CallOption) (*identityv1.SetNicknameResponse, error)
+	RemoveNickname(ctx context.Context, req *identityv1.RemoveNicknameRequest, opts ...grpc.CallOption) (*identityv1.RemoveNicknameResponse, error)
 }
 
 type identityWriter struct {
@@ -24,4 +26,12 @@ func NewIdentityWriter(conn grpc.ClientConnInterface) IdentityWriter {
 
 func (w *identityWriter) RegisterIdentity(ctx context.Context, req *identityv1.RegisterIdentityRequest, opts ...grpc.CallOption) (*identityv1.RegisterIdentityResponse, error) {
 	return w.client.RegisterIdentity(ctx, req, opts...)
+}
+
+func (w *identityWriter) SetNickname(ctx context.Context, req *identityv1.SetNicknameRequest, opts ...grpc.CallOption) (*identityv1.SetNicknameResponse, error) {
+	return w.client.SetNickname(ctx, req, opts...)
+}
+
+func (w *identityWriter) RemoveNickname(ctx context.Context, req *identityv1.RemoveNicknameRequest, opts ...grpc.CallOption) (*identityv1.RemoveNicknameResponse, error) {
+	return w.client.RemoveNickname(ctx, req, opts...)
 }
