@@ -55,7 +55,8 @@ functions:
                   rm -rf /tmp/agynio-api
                   git clone https://github.com/agynio/api.git /tmp/agynio-api
                   git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d
-                  buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template ./buf.gen.yaml /tmp/agynio-api -o .
+                  cd /tmp/agynio-api
+                  buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template /opt/app/data/buf.gen.yaml -o /opt/app/data
                   exec go run ./cmd/agents-service
               volumeMounts:
                 - name: data
@@ -138,7 +139,7 @@ pipelines:
       exec_container \
         --label-selector "app.kubernetes.io/name=agents-e2e" \
         -n ${AGENTS_NAMESPACE} \
-        -- bash -c 'cd /opt/app/data && rm -rf /tmp/agynio-api && git clone https://github.com/agynio/api.git /tmp/agynio-api && git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d && buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template ./buf.gen.yaml /tmp/agynio-api -o . && go test -v -count=1 -tags e2e ./test/e2e/'
+        -- bash -c 'cd /opt/app/data && rm -rf /tmp/agynio-api && git clone https://github.com/agynio/api.git /tmp/agynio-api && git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d && cd /tmp/agynio-api && buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template /opt/app/data/buf.gen.yaml -o /opt/app/data && cd /opt/app/data && go test -v -count=1 -tags e2e ./test/e2e/'
       EXIT_CODE=$?
       stop_dev e2e-runner
       purge_deployments e2e-runner

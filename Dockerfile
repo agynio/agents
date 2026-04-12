@@ -25,7 +25,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY buf.gen.yaml buf.yaml ./
 RUN git clone https://github.com/agynio/api.git /tmp/agynio-api && \
     git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d
-RUN buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template ./buf.gen.yaml /tmp/agynio-api -o .
+RUN cd /tmp/agynio-api && \
+    buf generate \
+      --path proto/agynio/api/agents/v1 \
+      --path proto/agynio/api/authorization/v1 \
+      --path proto/agynio/api/identity/v1 \
+      --template /src/buf.gen.yaml \
+      -o /src
 
 COPY . .
 
