@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	identityv1 "github.com/agynio/agents/.gen/go/agynio/api/identity/v1"
@@ -21,7 +22,10 @@ type Server struct {
 	identity IdentityWriter
 }
 
-const maxMcpNameLength = 63
+const (
+	maxMcpNameLength   = 63
+	defaultIdleTimeout = "5m"
+)
 
 var mcpNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
@@ -58,6 +62,13 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if req.GetInitImage() == "" {
 		return nil, status.Error(codes.InvalidArgument, "init_image is required")
 	}
+	idleTimeout := defaultIdleTimeout
+	if req.IdleTimeout != nil {
+		idleTimeout = req.GetIdleTimeout()
+	}
+	if err := validateDurationString(idleTimeout); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "idle_timeout: %v", err)
+	}
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
 		Name:          req.GetName(),
@@ -67,6 +78,7 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		Configuration: req.GetConfiguration(),
 		Image:         req.GetImage(),
 		InitImage:     req.GetInitImage(),
+		IdleTimeout:   &idleTimeout,
 		Resources:     resources,
 	})
 	if err != nil {
@@ -109,7 +121,7 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.Resources == nil {
+	if req.Name == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -147,6 +159,13 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if req.InitImage != nil {
 		value := req.GetInitImage()
 		update.InitImage = &value
+	}
+	if req.IdleTimeout != nil {
+		value := req.GetIdleTimeout()
+		if err := validateDurationString(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "idle_timeout: %v", err)
+		}
+		update.IdleTimeout = &value
 	}
 	if req.Resources != nil {
 		resources := toStoreComputeResources(req.GetResources())
@@ -1148,6 +1167,20 @@ func validateMcpName(name string) error {
 	}
 	if !mcpNamePattern.MatchString(name) {
 		return fmt.Errorf("must match %s", mcpNamePattern.String())
+	}
+	return nil
+}
+
+func validateDurationString(value string) error {
+	if value == "" {
+		return fmt.Errorf("value is empty")
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return err
+	}
+	if duration <= 0 {
+		return fmt.Errorf("must be a positive duration")
 	}
 	return nil
 }

@@ -24,7 +24,7 @@ func toProtoComputeResources(resources store.ComputeResources) *agentsv1.Compute
 }
 
 func toProtoAgent(agent store.Agent) *agentsv1.Agent {
-	return &agentsv1.Agent{
+	protoAgent := &agentsv1.Agent{
 		Meta:           toProtoEntityMeta(agent.Meta),
 		OrganizationId: agent.OrganizationID.String(),
 		Name:           agent.Name,
@@ -36,6 +36,10 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		InitImage:      agent.InitImage,
 		Resources:      toProtoComputeResources(agent.Resources),
 	}
+	if agent.IdleTimeout != nil {
+		protoAgent.IdleTimeout = agent.IdleTimeout
+	}
+	return protoAgent
 }
 
 func toProtoVolume(volume store.Volume) *agentsv1.Volume {
