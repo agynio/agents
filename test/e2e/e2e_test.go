@@ -114,22 +114,35 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("Volumes", func(t *testing.T) {
 		testID := uuid.NewString()
+		initialTTL := "24h"
 		volumeResp, err := client.CreateVolume(ctx, &agentsv1.CreateVolumeRequest{
 			OrganizationId: testOrganizationID,
 			Persistent:     true,
 			MountPath:      "/data/" + testID,
 			Size:           "1Gi",
 			Description:    "Volume " + testID,
+			Ttl:            proto.String(initialTTL),
 		})
 		require.NoError(t, err)
+		require.NotNil(t, volumeResp.Volume.Ttl)
+		require.Equal(t, initialTTL, volumeResp.Volume.GetTtl())
 		volumeID := volumeResp.Volume.Meta.Id
 
+		updatedTTL := "48h"
 		updatedVolumeResp, err := client.UpdateVolume(ctx, &agentsv1.UpdateVolumeRequest{
 			Id:          volumeID,
 			Description: proto.String("Volume Updated " + testID),
+			Ttl:         proto.String(updatedTTL),
 		})
 		require.NoError(t, err)
 		require.Equal(t, "Volume Updated "+testID, updatedVolumeResp.Volume.Description)
+		require.NotNil(t, updatedVolumeResp.Volume.Ttl)
+		require.Equal(t, updatedTTL, updatedVolumeResp.Volume.GetTtl())
+
+		getVolumeResp, err := client.GetVolume(ctx, &agentsv1.GetVolumeRequest{Id: volumeID})
+		require.NoError(t, err)
+		require.NotNil(t, getVolumeResp.Volume.Ttl)
+		require.Equal(t, updatedTTL, getVolumeResp.Volume.GetTtl())
 
 		volumes := listVolumes(ctx, t, client)
 		require.True(t, hasID(volumes, volumeID))

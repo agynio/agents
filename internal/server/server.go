@@ -233,6 +233,7 @@ func (s *Server) CreateVolume(ctx context.Context, req *agentsv1.CreateVolumeReq
 		MountPath:   req.GetMountPath(),
 		Size:        req.GetSize(),
 		Description: req.GetDescription(),
+		TTL:         req.Ttl,
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -257,7 +258,7 @@ func (s *Server) UpdateVolume(ctx context.Context, req *agentsv1.UpdateVolumeReq
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Persistent == nil && req.MountPath == nil && req.Size == nil && req.Description == nil {
+	if req.Persistent == nil && req.MountPath == nil && req.Size == nil && req.Description == nil && req.Ttl == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 
@@ -277,6 +278,10 @@ func (s *Server) UpdateVolume(ctx context.Context, req *agentsv1.UpdateVolumeReq
 	if req.Description != nil {
 		value := req.GetDescription()
 		update.Description = &value
+	}
+	if req.Ttl != nil {
+		value := req.GetTtl()
+		update.TTL = &value
 	}
 
 	volume, err := s.store.UpdateVolume(ctx, id, update)

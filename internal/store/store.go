@@ -14,7 +14,7 @@ import (
 
 const (
 	agentColumns                     = `id, organization_id, name, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
-	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, created_at, updated_at`
+	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
@@ -77,6 +77,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 
 func scanVolume(row pgx.Row) (Volume, error) {
 	var volume Volume
+	var ttl pgtype.Text
 	if err := row.Scan(
 		&volume.Meta.ID,
 		&volume.OrganizationID,
@@ -84,11 +85,13 @@ func scanVolume(row pgx.Row) (Volume, error) {
 		&volume.MountPath,
 		&volume.Size,
 		&volume.Description,
+		&ttl,
 		&volume.Meta.CreatedAt,
 		&volume.Meta.UpdatedAt,
 	); err != nil {
 		return Volume{}, err
 	}
+	volume.TTL = stringPtrFromPg(ttl)
 	return volume, nil
 }
 
@@ -373,14 +376,15 @@ func (s *Store) ListAgents(ctx context.Context, organizationID *uuid.UUID, _ Age
 
 func (s *Store) CreateVolume(ctx context.Context, organizationID uuid.UUID, input VolumeInput) (Volume, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO volumes (organization_id, persistent, mount_path, size, description)
-		 VALUES ($1, $2, $3, $4, $5)
+		fmt.Sprintf(`INSERT INTO volumes (organization_id, persistent, mount_path, size, description, ttl)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING %s`, volumeColumns),
 		organizationID,
 		input.Persistent,
 		input.MountPath,
 		input.Size,
 		input.Description,
+		input.TTL,
 	)
 	volume, err := scanVolume(row)
 	if err != nil {
@@ -417,6 +421,9 @@ func (s *Store) UpdateVolume(ctx context.Context, id uuid.UUID, update VolumeUpd
 	}
 	if update.Description != nil {
 		builder.add("description", *update.Description)
+	}
+	if update.TTL != nil {
+		builder.add("ttl", *update.TTL)
 	}
 
 	if builder.empty() {

@@ -15,6 +15,7 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
 
 COPY --from=buf /usr/local/bin/buf /usr/local/bin/buf
+RUN apk add --no-cache git
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -22,7 +23,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY buf.gen.yaml buf.yaml ./
-RUN buf generate buf.build/agynio/api --path agynio/api/agents/v1 --path agynio/api/authorization/v1
+RUN git clone https://github.com/agynio/api.git /tmp/agynio-api && \
+    git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d
+RUN buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template ./buf.gen.yaml /tmp/agynio-api -o .
 
 COPY . .
 

@@ -40,6 +40,7 @@ type Volume struct {
 	MountPath      string
 	Size           string
 	Description    string
+	TTL            *string
 }
 
 type VolumeAttachment struct {
@@ -135,6 +136,7 @@ type VolumeInput struct {
 	MountPath   string
 	Size        string
 	Description string
+	TTL         *string
 }
 
 type VolumeUpdate struct {
@@ -142,6 +144,7 @@ type VolumeUpdate struct {
 	MountPath   *string
 	Size        *string
 	Description *string
+	TTL         *string
 }
 
 type VolumeAttachmentInput struct {

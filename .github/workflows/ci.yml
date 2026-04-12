@@ -24,8 +24,13 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           version: 1.66.0
 
+      - name: Checkout api protos
+        run: |
+          git clone https://github.com/agynio/api.git /tmp/agynio-api
+          git -C /tmp/agynio-api checkout ec008b1e2dfacec3e4d85776729fe1c3d5f2c42d
+
       - name: Generate protobuf bindings
-        run: buf generate buf.build/agynio/api --path agynio/api/agents/v1 --path agynio/api/authorization/v1 --path agynio/api/identity/v1
+        run: buf generate --path proto/agynio/api/agents/v1 --path proto/agynio/api/authorization/v1 --path proto/agynio/api/identity/v1 --template ./buf.gen.yaml /tmp/agynio-api -o .
 
       - name: Run tests
         run: go test ./...
