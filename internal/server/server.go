@@ -98,6 +98,7 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		Image:         req.GetImage(),
 		InitImage:     req.GetInitImage(),
 		IdleTimeout:   &idleTimeout,
+		Capabilities:  append([]string(nil), req.GetCapabilities()...),
 		Resources:     resources,
 	})
 	if err != nil {
@@ -158,7 +159,11 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil {
+	// NOTE: proto3 repeated fields do not track presence on the wire. A nil
+	// slice indicates the caller did not set capabilities; when provided, the
+	// list replaces existing capabilities.
+	capabilitiesProvided := req.Capabilities != nil
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -220,6 +225,10 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 			return nil, status.Errorf(codes.InvalidArgument, "idle_timeout: %v", err)
 		}
 		update.IdleTimeout = &value
+	}
+	if capabilitiesProvided {
+		value := append([]string(nil), req.GetCapabilities()...)
+		update.Capabilities = &value
 	}
 	if req.Resources != nil {
 		resources := toStoreComputeResources(req.GetResources())

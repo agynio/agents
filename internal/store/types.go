@@ -31,6 +31,7 @@ type Agent struct {
 	Image          string
 	InitImage      string
 	IdleTimeout    *string
+	Capabilities   []string
 	Resources      ComputeResources
 }
 
@@ -118,6 +119,7 @@ type AgentInput struct {
 	Image         string
 	InitImage     string
 	IdleTimeout   *string
+	Capabilities  []string
 	Resources     ComputeResources
 }
 
@@ -131,6 +133,7 @@ type AgentUpdate struct {
 	Image         *string
 	InitImage     *string
 	IdleTimeout   *string
+	Capabilities  *[]string
 	Resources     *ComputeResources
 }
 

@@ -35,6 +35,7 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Configuration:  agent.Configuration,
 		Image:          agent.Image,
 		InitImage:      agent.InitImage,
+		Capabilities:   append([]string(nil), agent.Capabilities...),
 		Resources:      toProtoComputeResources(agent.Resources),
 	}
 	if agent.IdleTimeout != nil {

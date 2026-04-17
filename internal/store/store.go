@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -13,7 +14,7 @@ import (
 )
 
 const (
-	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
+	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
@@ -48,9 +49,35 @@ func stringPtrFromPg(value pgtype.Text) *string {
 	return &text
 }
 
+func decodeCapabilities(value []byte) ([]string, error) {
+	if value == nil {
+		return nil, fmt.Errorf("capabilities is NULL")
+	}
+	var capabilities []string
+	if err := json.Unmarshal(value, &capabilities); err != nil {
+		return nil, fmt.Errorf("decode capabilities: %w", err)
+	}
+	if capabilities == nil {
+		return nil, fmt.Errorf("capabilities must be a JSON array")
+	}
+	return capabilities, nil
+}
+
+func encodeCapabilities(capabilities []string) ([]byte, error) {
+	if capabilities == nil {
+		capabilities = []string{}
+	}
+	data, err := json.Marshal(capabilities)
+	if err != nil {
+		return nil, fmt.Errorf("encode capabilities: %w", err)
+	}
+	return data, nil
+}
+
 func scanAgent(row pgx.Row) (Agent, error) {
 	var agent Agent
 	var idleTimeout pgtype.Text
+	var capabilities []byte
 	if err := row.Scan(
 		&agent.Meta.ID,
 		&agent.OrganizationID,
@@ -63,6 +90,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.Image,
 		&agent.InitImage,
 		&idleTimeout,
+		&capabilities,
 		&agent.Resources.RequestsCPU,
 		&agent.Resources.RequestsMemory,
 		&agent.Resources.LimitsCPU,
@@ -73,6 +101,11 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		return Agent{}, err
 	}
 	agent.IdleTimeout = stringPtrFromPg(idleTimeout)
+	decodedCapabilities, err := decodeCapabilities(capabilities)
+	if err != nil {
+		return Agent{}, err
+	}
+	agent.Capabilities = decodedCapabilities
 	return agent, nil
 }
 
@@ -251,9 +284,13 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 }
 
 func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input AgentInput) (Agent, error) {
+	capabilitiesJSON, err := encodeCapabilities(input.Capabilities)
+	if err != nil {
+		return Agent{}, err
+	}
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		 RETURNING %s`, agentColumns),
 		organizationID,
 		input.Name,
@@ -265,6 +302,7 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		input.Image,
 		input.InitImage,
 		input.IdleTimeout,
+		capabilitiesJSON,
 		input.Resources.RequestsCPU,
 		input.Resources.RequestsMemory,
 		input.Resources.LimitsCPU,
@@ -320,6 +358,13 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 	}
 	if update.IdleTimeout != nil {
 		builder.add("idle_timeout", *update.IdleTimeout)
+	}
+	if update.Capabilities != nil {
+		capabilitiesJSON, err := encodeCapabilities(*update.Capabilities)
+		if err != nil {
+			return Agent{}, err
+		}
+		builder.add("capabilities", capabilitiesJSON)
 	}
 	if update.Resources != nil {
 		builder.add("resources_requests_cpu", update.Resources.RequestsCPU)
