@@ -154,6 +154,21 @@ func (s *Server) GetAgent(ctx context.Context, req *agentsv1.GetAgentRequest) (*
 	return &agentsv1.GetAgentResponse{Agent: toProtoAgent(agent)}, nil
 }
 
+func (s *Server) ResolveAgentIdentity(ctx context.Context, req *agentsv1.ResolveAgentIdentityRequest) (*agentsv1.ResolveAgentIdentityResponse, error) {
+	identityID, err := parseUUID(req.GetIdentityId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
+	}
+	agent, err := s.store.GetAgent(ctx, identityID)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.ResolveAgentIdentityResponse{
+		AgentId:        agent.Meta.ID.String(),
+		OrganizationId: agent.OrganizationID.String(),
+	}, nil
+}
+
 func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentRequest) (*agentsv1.UpdateAgentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
