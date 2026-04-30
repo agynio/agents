@@ -13,6 +13,7 @@ import (
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -55,8 +56,32 @@ func (s *Server) registerAgentIdentity(ctx context.Context, agentID uuid.UUID) e
 	return err
 }
 
+func identityIDFromContext(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "identity not available: x-identity-id not found in metadata")
+	}
+	identityIDs := md.Get("x-identity-id")
+	if len(identityIDs) == 0 || identityIDs[0] == "" {
+		return "", status.Error(codes.Unauthenticated, "identity not available: x-identity-id not found in metadata")
+	}
+	return identityIDs[0], nil
+}
+
+func identityOutgoingContext(ctx context.Context) (context.Context, error) {
+	identityID, err := identityIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return metadata.AppendToOutgoingContext(ctx, "x-identity-id", identityID), nil
+}
+
 func (s *Server) setAgentNickname(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID, nickname string) error {
-	_, err := s.identity.SetNickname(ctx, &identityv1.SetNicknameRequest{
+	identityCtx, err := identityOutgoingContext(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.identity.SetNickname(identityCtx, &identityv1.SetNicknameRequest{
 		OrganizationId: organizationID.String(),
 		IdentityId:     agentID.String(),
 		Nickname:       nickname,
@@ -65,7 +90,11 @@ func (s *Server) setAgentNickname(ctx context.Context, agentID uuid.UUID, organi
 }
 
 func (s *Server) removeAgentNickname(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) error {
-	_, err := s.identity.RemoveNickname(ctx, &identityv1.RemoveNicknameRequest{
+	identityCtx, err := identityOutgoingContext(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.identity.RemoveNickname(identityCtx, &identityv1.RemoveNicknameRequest{
 		OrganizationId: organizationID.String(),
 		IdentityId:     agentID.String(),
 	})
