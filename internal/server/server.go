@@ -392,7 +392,10 @@ func (s *Server) DeleteAgent(ctx context.Context, req *agentsv1.DeleteAgentReque
 }
 
 func (s *Server) restoreAgentAuthorization(ctx context.Context, agent store.Agent, roles []store.AgentRoleAssignment) error {
-	writes := []*authorizationv1.TupleKey{agentOrganizationTuple(agent.Meta.ID, agent.OrganizationID)}
+	writes := []*authorizationv1.TupleKey{
+		agentOrganizationTuple(agent.Meta.ID, agent.OrganizationID),
+		agentIdentityOrganizationMembershipTuple(agent.Meta.ID, agent.OrganizationID),
+	}
 	if agent.Availability == store.AgentAvailabilityInternal {
 		writes = append(writes, agentInternalAccessTuple(agent.Meta.ID, agent.OrganizationID))
 	}
