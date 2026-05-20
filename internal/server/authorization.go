@@ -41,7 +41,7 @@ func (s *Server) requireOrganizationMember(ctx context.Context, identityID uuid.
 
 func (s *Server) addAgentMembership(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) error {
 	return s.writeAuthorization(ctx,
-		[]*authorizationv1.TupleKey{agentOrganizationTuple(agentID, organizationID)},
+		[]*authorizationv1.TupleKey{agentIdentityOrganizationMembershipTuple(agentID, organizationID)},
 		nil,
 	)
 }
@@ -49,13 +49,14 @@ func (s *Server) addAgentMembership(ctx context.Context, agentID uuid.UUID, orga
 func (s *Server) removeAgentMembership(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) error {
 	return s.writeAuthorization(ctx,
 		nil,
-		[]*authorizationv1.TupleKey{agentOrganizationTuple(agentID, organizationID)},
+		[]*authorizationv1.TupleKey{agentIdentityOrganizationMembershipTuple(agentID, organizationID)},
 	)
 }
 
 func (s *Server) addAgentAuthorization(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID, creatorID uuid.UUID, availability store.AgentAvailability) error {
 	writes := []*authorizationv1.TupleKey{
 		agentOrganizationTuple(agentID, organizationID),
+		agentIdentityOrganizationMembershipTuple(agentID, organizationID),
 		agentRoleTuple(agentID, creatorID, store.AgentRoleOwner),
 	}
 	if availability == store.AgentAvailabilityInternal {
@@ -65,7 +66,10 @@ func (s *Server) addAgentAuthorization(ctx context.Context, agentID uuid.UUID, o
 }
 
 func (s *Server) removeAgentAuthorization(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID, roles []store.AgentRoleAssignment, availability store.AgentAvailability) error {
-	deletes := []*authorizationv1.TupleKey{agentOrganizationTuple(agentID, organizationID)}
+	deletes := []*authorizationv1.TupleKey{
+		agentOrganizationTuple(agentID, organizationID),
+		agentIdentityOrganizationMembershipTuple(agentID, organizationID),
+	}
 	if availability == store.AgentAvailabilityInternal {
 		deletes = append(deletes, agentInternalAccessTuple(agentID, organizationID))
 	}
@@ -112,6 +116,14 @@ func agentOrganizationTuple(agentID uuid.UUID, organizationID uuid.UUID) *author
 		User:     organizationPrefix + organizationID.String(),
 		Relation: "org",
 		Object:   agentPrefix + agentID.String(),
+	}
+}
+
+func agentIdentityOrganizationMembershipTuple(agentID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + agentID.String(),
+		Relation: "member",
+		Object:   organizationPrefix + organizationID.String(),
 	}
 }
 
