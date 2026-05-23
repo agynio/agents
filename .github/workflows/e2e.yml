@@ -1,0 +1,44 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: e2e-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Provision cluster
+        uses: agynio/bootstrap/.github/actions/provision@main
+
+      - name: Setup DevSpace
+        uses: agynio/e2e/.github/actions/setup-devspace@main
+
+      - name: Deploy agents from source
+        run: devspace dev
+
+      - name: Run E2E tests
+        uses: agynio/e2e/.github/actions/run-tests@main
+        env:
+          E2E_SUITES: go-core
+          E2E_GO_TEST_RUN: ^TestNoDuplicateWorkloads$
+        with:
+          service: agents
+          tag: svc_agents_orchestrator
+          include_smoke: false
