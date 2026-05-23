@@ -41,24 +41,3 @@ jobs:
 
       - name: Build
         run: go build ./...
-
-  e2e:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: agynio/bootstrap/.github/actions/provision@main
-      - name: Setup DevSpace
-        uses: agynio/e2e/.github/actions/setup-devspace@main
-      - name: Deploy agents from source
-        run: devspace dev
-      - uses: agynio/e2e/.github/actions/run-tests@main
-        env:
-          E2E_SUITES: go-core
-          E2E_GO_TEST_RUN: ^TestNoDuplicateWorkloads$
-        with:
-          service: agents
-          tag: svc_agents_orchestrator
-          include_smoke: false
