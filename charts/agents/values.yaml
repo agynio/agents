@@ -1,5 +1,5 @@
 nameOverride: ""
-fullnameOverride: ""
+fullnameOverride: agents
 
 global:
   imageRegistry: ""
@@ -73,7 +73,10 @@ env:
   - name: GRPC_ADDRESS
     value: ":50051"
   - name: DATABASE_URL
-    value: ""
+    valueFrom:
+      secretKeyRef:
+        name: agyn-platform-database-urls
+        key: agents
 envFrom: []
 extraEnvVars: []
 extraEnvVarsCM: ""
