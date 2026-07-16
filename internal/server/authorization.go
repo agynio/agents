@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	identityPrefix     = "identity:"
-	organizationPrefix = "organization:"
-	agentPrefix        = "agent:"
-	sandboxPrefix      = "sandbox:"
+	identityPrefix      = "identity:"
+	organizationPrefix  = "organization:"
+	agentPrefix         = "agent:"
+	agentInstancePrefix = "agent_instance:"
+	sandboxPrefix       = "sandbox:"
 )
 
 type AuthorizationWriter interface {
@@ -41,35 +42,38 @@ func (s *Server) requireOrganizationMember(ctx context.Context, identityID uuid.
 }
 
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
-	response, err := s.authz.Check(ctx, &authorizationv1.CheckRequest{
-		TupleKey: &authorizationv1.TupleKey{
-			User:     identityPrefix + identityID.String(),
-			Relation: relation,
-			Object:   organizationPrefix + organizationID.String(),
-		},
-	})
-	if err != nil {
-		return err
-	}
-	if !response.GetAllowed() {
-		return status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation)
-	}
-	return nil
+	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }
 
 func (s *Server) requireSandboxRelation(ctx context.Context, identityID uuid.UUID, sandboxID uuid.UUID, relation string) error {
+	return s.requireAllowed(ctx, identityID, relation, sandboxPrefix+sandboxID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on sandbox", relation))
+}
+
+func (s *Server) requireAgentCanInitiate(ctx context.Context, identityID uuid.UUID, agentID uuid.UUID) error {
+	return s.requireAllowed(ctx, identityID, "can_initiate", agentPrefix+agentID.String(), status.Error(codes.PermissionDenied, "identity cannot initiate this agent"))
+}
+
+func (s *Server) requireAgentInstanceCanManage(ctx context.Context, identityID uuid.UUID, agentInstanceID uuid.UUID) error {
+	return s.requireAllowed(ctx, identityID, "can_manage", agentInstancePrefix+agentInstanceID.String(), status.Error(codes.PermissionDenied, "identity cannot manage this agent instance"))
+}
+
+func (s *Server) requireAgentInstanceCanWriteInbox(ctx context.Context, identityID uuid.UUID, agentInstanceID uuid.UUID) error {
+	return s.requireAllowed(ctx, identityID, "can_write_inbox", agentInstancePrefix+agentInstanceID.String(), status.Error(codes.PermissionDenied, "identity cannot write this agent instance inbox"))
+}
+
+func (s *Server) requireAllowed(ctx context.Context, identityID uuid.UUID, relation string, object string, denied error) error {
 	response, err := s.authz.Check(ctx, &authorizationv1.CheckRequest{
 		TupleKey: &authorizationv1.TupleKey{
 			User:     identityPrefix + identityID.String(),
 			Relation: relation,
-			Object:   sandboxPrefix + sandboxID.String(),
+			Object:   object,
 		},
 	})
 	if err != nil {
 		return err
 	}
 	if !response.GetAllowed() {
-		return status.Errorf(codes.PermissionDenied, "identity lacks %s on sandbox", relation)
+		return denied
 	}
 	return nil
 }
@@ -138,6 +142,22 @@ func (s *Server) removeAgentRoleAuthorization(ctx context.Context, agentID uuid.
 	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{agentRoleTuple(agentID, identityID, role)})
 }
 
+func (s *Server) addAgentInstanceAuthorization(ctx context.Context, instance store.AgentInstance) error {
+	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{
+		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
+		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+	}, nil)
+}
+
+func (s *Server) removeAgentInstanceAuthorization(ctx context.Context, instance store.AgentInstance) error {
+	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{
+		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
+		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+	})
+}
+
 func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID) error {
 	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
@@ -189,6 +209,30 @@ func agentRoleTuple(agentID uuid.UUID, identityID uuid.UUID, role store.AgentRol
 		User:     identityPrefix + identityID.String(),
 		Relation: string(role),
 		Object:   agentPrefix + agentID.String(),
+	}
+}
+
+func agentInstanceClassTuple(instanceID uuid.UUID, agentID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     agentPrefix + agentID.String(),
+		Relation: "class",
+		Object:   agentInstancePrefix + instanceID.String(),
+	}
+}
+
+func agentInstanceOrganizationTuple(instanceID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     organizationPrefix + organizationID.String(),
+		Relation: "org",
+		Object:   agentInstancePrefix + instanceID.String(),
+	}
+}
+
+func agentInstanceIdentityOrganizationMembershipTuple(instanceID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + instanceID.String(),
+		Relation: "member",
+		Object:   organizationPrefix + organizationID.String(),
 	}
 }
 

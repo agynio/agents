@@ -67,6 +67,81 @@ type AgentRoleAssignment struct {
 	Role       AgentRole
 }
 
+type AgentInstanceState string
+
+const (
+	AgentInstanceStateActive     AgentInstanceState = "active"
+	AgentInstanceStatePaused     AgentInstanceState = "paused"
+	AgentInstanceStateTerminated AgentInstanceState = "terminated"
+)
+
+type InboxItemSourceKind string
+
+const (
+	InboxItemSourceKindThread InboxItemSourceKind = "thread"
+	InboxItemSourceKindDirect InboxItemSourceKind = "direct"
+)
+
+type AgentInstance struct {
+	Meta           EntityMeta
+	AgentID        uuid.UUID
+	OrganizationID uuid.UUID
+	Label          *string
+	Suffix         string
+	State          AgentInstanceState
+	PauseReason    *string
+	LastActivityAt time.Time
+	Nickname       string
+}
+
+type AgentInstanceInput struct {
+	AgentID        uuid.UUID
+	OrganizationID uuid.UUID
+	Label          *string
+	Suffix         string
+	Nickname       string
+}
+
+type AgentInstanceFilter struct {
+	OrganizationID *uuid.UUID
+	AgentID        *uuid.UUID
+	StateIn        []AgentInstanceState
+	HasUnacked     *bool
+}
+
+type AgentInstanceListResult struct {
+	Instances  []AgentInstance
+	NextCursor *PageCursor
+}
+
+type InboxItem struct {
+	ID              uuid.UUID
+	AgentInstanceID uuid.UUID
+	SourceKind      InboxItemSourceKind
+	ThreadID        *uuid.UUID
+	MessageID       *uuid.UUID
+	SenderID        uuid.UUID
+	Body            string
+	FileIDs         []uuid.UUID
+	AcceptedAt      time.Time
+	AckedAt         *time.Time
+}
+
+type InboxItemInput struct {
+	AgentInstanceID uuid.UUID
+	SourceKind      InboxItemSourceKind
+	ThreadID        *uuid.UUID
+	MessageID       *uuid.UUID
+	SenderID        uuid.UUID
+	Body            string
+	FileIDs         []uuid.UUID
+}
+
+type InboxItemListResult struct {
+	Items      []InboxItem
+	NextCursor *InboxPageCursor
+}
+
 type Volume struct {
 	Meta           EntityMeta
 	OrganizationID uuid.UUID
@@ -378,6 +453,11 @@ type SandboxFilter struct {
 
 type PageCursor struct {
 	AfterID uuid.UUID
+}
+
+type InboxPageCursor struct {
+	AfterAcceptedAt time.Time
+	AfterID         uuid.UUID
 }
 
 type AgentListResult struct {

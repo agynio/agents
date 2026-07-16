@@ -57,16 +57,24 @@ func (s *Server) registerAgentIdentity(ctx context.Context, agentID uuid.UUID) e
 	return err
 }
 
-func identityIDFromContext(ctx context.Context) (string, error) {
+func metadataValueFromIncomingContext(ctx context.Context, key string) (string, bool) {
 	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", false
+	}
+	values := md.Get(key)
+	if len(values) == 0 || values[0] == "" {
+		return "", false
+	}
+	return values[0], true
+}
+
+func identityIDFromContext(ctx context.Context) (string, error) {
+	identityID, ok := metadataValueFromIncomingContext(ctx, "x-identity-id")
 	if !ok {
 		return "", status.Error(codes.Unauthenticated, "identity not available: x-identity-id not found in metadata")
 	}
-	identityIDs := md.Get("x-identity-id")
-	if len(identityIDs) == 0 || identityIDs[0] == "" {
-		return "", status.Error(codes.Unauthenticated, "identity not available: x-identity-id not found in metadata")
-	}
-	return identityIDs[0], nil
+	return identityID, nil
 }
 
 func identityOutgoingContext(ctx context.Context) (context.Context, error) {
@@ -217,12 +225,24 @@ func (s *Server) ResolveAgentIdentity(ctx context.Context, req *agentsv1.Resolve
 		return nil, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
 	}
 	agent, err := s.store.GetAgent(ctx, identityID)
+	if err == nil {
+		return &agentsv1.ResolveAgentIdentityResponse{
+			AgentId:        agent.Meta.ID.String(),
+			OrganizationId: agent.OrganizationID.String(),
+		}, nil
+	}
+	var notFound *store.NotFoundError
+	if !errors.As(err, &notFound) {
+		return nil, toStatusError(err)
+	}
+	instance, err := s.store.GetAgentInstance(ctx, identityID)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
 	return &agentsv1.ResolveAgentIdentityResponse{
-		AgentId:        agent.Meta.ID.String(),
-		OrganizationId: agent.OrganizationID.String(),
+		AgentId:         instance.AgentID.String(),
+		OrganizationId:  instance.OrganizationID.String(),
+		AgentInstanceId: protoString(instance.Meta.ID.String()),
 	}, nil
 }
 
@@ -358,6 +378,13 @@ func (s *Server) DeleteAgent(ctx context.Context, req *agentsv1.DeleteAgentReque
 	agent, err := s.store.GetAgent(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	hasInstances, err := s.store.HasNonTerminatedAgentInstances(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if hasInstances {
+		return nil, status.Error(codes.FailedPrecondition, "agent has non-terminated instances")
 	}
 	roles, err := s.store.ListAgentRoles(ctx, agent.Meta.ID)
 	if err != nil {
@@ -1515,6 +1542,17 @@ func decodePageCursor(token string) (*store.PageCursor, error) {
 	return &store.PageCursor{AfterID: id}, nil
 }
 
+func decodeInboxPageCursor(token string) (*store.InboxPageCursor, error) {
+	if token == "" {
+		return nil, nil
+	}
+	acceptedAt, id, err := store.DecodeInboxPageToken(token)
+	if err != nil {
+		return nil, err
+	}
+	return &store.InboxPageCursor{AfterAcceptedAt: acceptedAt, AfterID: id}, nil
+}
+
 func mapListResult[T any, P any](items []T, nextCursor *store.PageCursor, convert func(T) P) ([]P, string) {
 	results := make([]P, len(items))
 	for i, item := range items {
@@ -1524,6 +1562,17 @@ func mapListResult[T any, P any](items []T, nextCursor *store.PageCursor, conver
 		return results, ""
 	}
 	return results, store.EncodePageToken(nextCursor.AfterID)
+}
+
+func mapInboxListResult[T any, P any](items []T, nextCursor *store.InboxPageCursor, convert func(T) P) ([]P, string) {
+	results := make([]P, len(items))
+	for i, item := range items {
+		results[i] = convert(item)
+	}
+	if nextCursor == nil {
+		return results, ""
+	}
+	return results, store.EncodeInboxPageToken(nextCursor.AfterAcceptedAt, nextCursor.AfterID)
 }
 
 func parseUUID(value string) (uuid.UUID, error) {
@@ -1626,6 +1675,49 @@ func agentRoleToProto(role store.AgentRole) agentsv1.AgentRole {
 	default:
 		panic(fmt.Sprintf("unknown agent role %q", role))
 	}
+}
+
+func agentInstanceStateFromProto(state agentsv1.AgentInstanceState) (store.AgentInstanceState, error) {
+	switch state {
+	case agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE:
+		return store.AgentInstanceStateActive, nil
+	case agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_PAUSED:
+		return store.AgentInstanceStatePaused, nil
+	case agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_TERMINATED:
+		return store.AgentInstanceStateTerminated, nil
+	case agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_UNSPECIFIED:
+		return "", fmt.Errorf("must be active, paused, or terminated")
+	default:
+		return "", fmt.Errorf("unknown value %d", state)
+	}
+}
+
+func agentInstanceStateToProto(state store.AgentInstanceState) agentsv1.AgentInstanceState {
+	switch state {
+	case store.AgentInstanceStateActive:
+		return agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_ACTIVE
+	case store.AgentInstanceStatePaused:
+		return agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_PAUSED
+	case store.AgentInstanceStateTerminated:
+		return agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_TERMINATED
+	default:
+		panic(fmt.Sprintf("unknown agent instance state %q", state))
+	}
+}
+
+func inboxItemSourceKindToProto(kind store.InboxItemSourceKind) agentsv1.InboxItemSourceKind {
+	switch kind {
+	case store.InboxItemSourceKindThread:
+		return agentsv1.InboxItemSourceKind_INBOX_ITEM_SOURCE_KIND_THREAD
+	case store.InboxItemSourceKindDirect:
+		return agentsv1.InboxItemSourceKind_INBOX_ITEM_SOURCE_KIND_DIRECT
+	default:
+		panic(fmt.Sprintf("unknown inbox item source kind %q", kind))
+	}
+}
+
+func protoString(value string) *string {
+	return &value
 }
 
 func toStatusError(err error) error {
