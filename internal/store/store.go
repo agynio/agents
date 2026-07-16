@@ -18,6 +18,8 @@ const (
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
+	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, created_at, updated_at`
+	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
 	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
 	hookColumns                      = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
@@ -172,6 +174,51 @@ func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, erro
 	attachment.McpID = uuidPtrFromPg(mcpID)
 	attachment.HookID = uuidPtrFromPg(hookID)
 	return attachment, nil
+}
+
+func scanEnvironment(row pgx.Row) (Environment, error) {
+	var environment Environment
+	if err := row.Scan(
+		&environment.Meta.ID,
+		&environment.OrganizationID,
+		&environment.Name,
+		&environment.FlavorID,
+		&environment.Image,
+		&environment.FlavorName,
+		&environment.Meta.CreatedAt,
+		&environment.Meta.UpdatedAt,
+	); err != nil {
+		return Environment{}, err
+	}
+	return environment, nil
+}
+
+func scanSandbox(row pgx.Row) (Sandbox, error) {
+	var sandbox Sandbox
+	var lastSessionAt pgtype.Timestamptz
+	var workloadID pgtype.UUID
+	if err := row.Scan(
+		&sandbox.Meta.ID,
+		&sandbox.OrganizationID,
+		&sandbox.Name,
+		&sandbox.EnvironmentID,
+		&sandbox.OwnerID,
+		&sandbox.Status,
+		&sandbox.IdleTimeout,
+		&sandbox.TTL,
+		&lastSessionAt,
+		&sandbox.EnvironmentName,
+		&workloadID,
+		&sandbox.Meta.CreatedAt,
+		&sandbox.Meta.UpdatedAt,
+	); err != nil {
+		return Sandbox{}, err
+	}
+	if lastSessionAt.Valid {
+		sandbox.LastSessionAt = &lastSessionAt.Time
+	}
+	sandbox.WorkloadID = uuidPtrFromPg(workloadID)
+	return sandbox, nil
 }
 
 func scanMcp(row pgx.Row) (Mcp, error) {

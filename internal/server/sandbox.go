@@ -1,0 +1,512 @@
+package server
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"math/big"
+	"regexp"
+
+	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
+	"github.com/agynio/agents/internal/store"
+	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	maxSandboxNameLength      = 63
+	defaultSandboxIdleTimeout = "30m"
+	defaultSandboxTTL         = "72h"
+	maxGeneratedNameAttempts  = 8
+)
+
+var (
+	sandboxNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+	sandboxAdjectives  = []string{"brave", "calm", "eager", "gentle", "lucky", "nimble", "quiet", "rapid"}
+	sandboxNouns       = []string{"badger", "falcon", "otter", "panda", "raven", "tiger", "yak", "zebra"}
+)
+
+func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvironmentRequest) (*agentsv1.CreateEnvironmentResponse, error) {
+	organizationID, err := parseUUID(req.GetOrganizationId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	flavorID, err := parseUUID(req.GetFlavorId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "flavor_id: %v", err)
+	}
+	if err := validateSandboxName(req.GetName()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+	}
+	if req.GetImage() == "" {
+		return nil, status.Error(codes.InvalidArgument, "image is required")
+	}
+	environment, err := s.store.CreateEnvironment(ctx, organizationID, store.EnvironmentInput{
+		Name:     req.GetName(),
+		FlavorID: flavorID,
+		Image:    req.GetImage(),
+	})
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.CreateEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
+}
+
+func (s *Server) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmentRequest) (*agentsv1.GetEnvironmentResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	environment, err := s.store.GetEnvironment(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.GetEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
+}
+
+func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvironmentRequest) (*agentsv1.UpdateEnvironmentResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if req.Name == nil && req.FlavorId == nil && req.Image == nil {
+		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+	update := store.EnvironmentUpdate{}
+	if req.Name != nil {
+		name := req.GetName()
+		if err := validateSandboxName(name); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+		}
+		update.Name = &name
+	}
+	if req.FlavorId != nil {
+		flavorID, err := parseUUID(req.GetFlavorId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "flavor_id: %v", err)
+		}
+		update.FlavorID = &flavorID
+	}
+	if req.Image != nil {
+		image := req.GetImage()
+		if image == "" {
+			return nil, status.Error(codes.InvalidArgument, "image is required")
+		}
+		update.Image = &image
+	}
+	environment, err := s.store.UpdateEnvironment(ctx, id, update)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.UpdateEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
+}
+
+func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvironmentRequest) (*agentsv1.DeleteEnvironmentResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if err := s.store.DeleteEnvironment(ctx, id); err != nil {
+		return nil, toStatusError(err)
+	}
+	return &agentsv1.DeleteEnvironmentResponse{}, nil
+}
+
+func (s *Server) ListEnvironments(ctx context.Context, req *agentsv1.ListEnvironmentsRequest) (*agentsv1.ListEnvironmentsResponse, error) {
+	cursor, err := decodePageCursor(req.GetPageToken())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
+	}
+	organizationID, err := parseUUID(req.GetOrganizationId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	result, err := s.store.ListEnvironments(ctx, organizationID, store.EnvironmentFilter{}, req.GetPageSize(), cursor)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	environments, nextToken := mapListResult(result.Environments, result.NextCursor, toProtoEnvironment)
+	return &agentsv1.ListEnvironmentsResponse{Environments: environments, NextPageToken: nextToken}, nil
+}
+
+func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxRequest) (*agentsv1.CreateSandboxResponse, error) {
+	organizationID, err := parseUUID(req.GetOrganizationId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	environmentID, err := parseUUID(req.GetEnvironmentId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+	}
+	var requestedName *string
+	if req.Name != nil {
+		name := req.GetName()
+		if err := validateSandboxName(name); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+		}
+		requestedName = &name
+	}
+	if err := validateDurationString(defaultSandboxIdleTimeout); err != nil {
+		return nil, status.Errorf(codes.Internal, "default sandbox idle_timeout: %v", err)
+	}
+	if err := validateDurationString(defaultSandboxTTL); err != nil {
+		return nil, status.Errorf(codes.Internal, "default sandbox ttl: %v", err)
+	}
+	ownerID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireOrganizationRelation(ctx, ownerID, organizationID, "can_create_sandbox"); err != nil {
+		return nil, err
+	}
+
+	var sandbox store.Sandbox
+	if requestedName != nil {
+		sandbox, err = s.store.CreateSandbox(ctx, organizationID, store.SandboxInput{
+			Name:          *requestedName,
+			EnvironmentID: environmentID,
+			OwnerID:       ownerID,
+			Status:        store.SandboxStatusStarting,
+			IdleTimeout:   defaultSandboxIdleTimeout,
+			TTL:           defaultSandboxTTL,
+		})
+	} else {
+		sandbox, err = s.createSandboxWithGeneratedName(ctx, organizationID, environmentID, ownerID)
+	}
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.addSandboxAuthorization(ctx, sandbox.Meta.ID, sandbox.OrganizationID, sandbox.OwnerID); err != nil {
+		if rollbackErr := s.store.DeleteSandboxRecord(ctx, sandbox.Meta.ID); rollbackErr != nil {
+			return nil, status.Errorf(codes.Internal, "authorization failed: %v; rollback failed: %v", err, rollbackErr)
+		}
+		return nil, err
+	}
+	s.publishSandboxUpdated(ctx, sandbox)
+	return &agentsv1.CreateSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) GetSandbox(ctx context.Context, req *agentsv1.GetSandboxRequest) (*agentsv1.GetSandboxResponse, error) {
+	sandbox, err := s.getSandboxFromRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if sandbox.OwnerID != identityID {
+		if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_list_all"); err != nil {
+			return nil, err
+		}
+	}
+	return &agentsv1.GetSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesRequest) (*agentsv1.ListSandboxesResponse, error) {
+	cursor, err := decodePageCursor(req.GetPageToken())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
+	}
+	organizationID, err := parseUUID(req.GetOrganizationId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filter, err := s.sandboxListFilter(ctx, req, organizationID, identityID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.store.ListSandboxes(ctx, organizationID, filter, req.GetPageSize(), cursor)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	sandboxes, nextToken := mapListResult(result.Sandboxes, result.NextCursor, toProtoSandbox)
+	return &agentsv1.ListSandboxesResponse{Sandboxes: sandboxes, NextPageToken: nextToken}, nil
+}
+
+func (s *Server) sandboxListFilter(ctx context.Context, req *agentsv1.ListSandboxesRequest, organizationID uuid.UUID, identityID uuid.UUID) (store.SandboxFilter, error) {
+	filter := store.SandboxFilter{IncludeTerminated: req.GetIncludeTerminated()}
+	if req.OwnerId == nil {
+		filter.OwnerID = &identityID
+		if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
+			return store.SandboxFilter{}, err
+		}
+		return filter, nil
+	}
+
+	if req.GetOwnerId() == "" {
+		if err := s.requireOrganizationRelation(ctx, identityID, organizationID, "can_list_sandboxes"); err != nil {
+			return store.SandboxFilter{}, err
+		}
+		return filter, nil
+	}
+
+	ownerID, err := parseUUID(req.GetOwnerId())
+	if err != nil {
+		return store.SandboxFilter{}, status.Errorf(codes.InvalidArgument, "owner_id: %v", err)
+	}
+	filter.OwnerID = &ownerID
+	if ownerID == identityID {
+		if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
+			return store.SandboxFilter{}, err
+		}
+		return filter, nil
+	}
+	if err := s.requireOrganizationRelation(ctx, identityID, organizationID, "can_list_sandboxes"); err != nil {
+		return store.SandboxFilter{}, err
+	}
+	return filter, nil
+}
+
+func (s *Server) StopSandbox(ctx context.Context, req *agentsv1.StopSandboxRequest) (*agentsv1.StopSandboxResponse, error) {
+	sandbox, err := s.updateSandboxStatusWithAuthorization(ctx, req.GetId(), "can_stop", store.SandboxStatusStopped)
+	if err != nil {
+		return nil, err
+	}
+	return &agentsv1.StopSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) DeleteSandbox(ctx context.Context, req *agentsv1.DeleteSandboxRequest) (*agentsv1.DeleteSandboxResponse, error) {
+	sandboxID, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	sandbox, err := s.store.GetSandbox(ctx, sandboxID)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_delete"); err != nil {
+		return nil, err
+	}
+	terminated := store.SandboxStatusTerminated
+	sandbox, err = s.store.UpdateSandbox(ctx, sandbox.Meta.ID, store.SandboxUpdate{Status: &terminated})
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	s.publishSandboxUpdated(ctx, sandbox)
+	return &agentsv1.DeleteSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) EnsureSandboxRunning(ctx context.Context, req *agentsv1.EnsureSandboxRunningRequest) (*agentsv1.EnsureSandboxRunningResponse, error) {
+	sandboxID, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	sandbox, err := s.store.GetSandbox(ctx, sandboxID)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_connect"); err != nil {
+		return nil, err
+	}
+	if sandbox.Status == store.SandboxStatusTerminated {
+		return nil, status.Error(codes.FailedPrecondition, "terminated sandbox cannot be started")
+	}
+	if sandbox.Status == store.SandboxStatusStopped || sandbox.Status == store.SandboxStatusFailed {
+		return nil, status.Error(codes.Unimplemented, "sandbox runtime orchestration is not yet available")
+	}
+	return &agentsv1.EnsureSandboxRunningResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) UpdateSandboxLastSession(ctx context.Context, req *agentsv1.UpdateSandboxLastSessionRequest) (*agentsv1.UpdateSandboxLastSessionResponse, error) {
+	sandboxID, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if req.GetLastSessionAt() == nil {
+		return nil, status.Error(codes.InvalidArgument, "last_session_at is required")
+	}
+	lastSessionAt := req.GetLastSessionAt().AsTime()
+	sandbox, err := s.store.UpdateSandbox(ctx, sandboxID, store.SandboxUpdate{LastSessionAt: &lastSessionAt})
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	s.publishSandboxUpdated(ctx, sandbox)
+	return &agentsv1.UpdateSandboxLastSessionResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) createSandboxWithGeneratedName(ctx context.Context, organizationID uuid.UUID, environmentID uuid.UUID, ownerID uuid.UUID) (store.Sandbox, error) {
+	create := func(name string) (store.Sandbox, error) {
+		return s.store.CreateSandbox(ctx, organizationID, store.SandboxInput{
+			Name:          name,
+			EnvironmentID: environmentID,
+			OwnerID:       ownerID,
+			Status:        store.SandboxStatusStarting,
+			IdleTimeout:   defaultSandboxIdleTimeout,
+			TTL:           defaultSandboxTTL,
+		})
+	}
+	return createSandboxWithGeneratedName(maxGeneratedNameAttempts, generateSandboxName, create)
+}
+
+func createSandboxWithGeneratedName(attempts int, generate func() (string, error), create func(string) (store.Sandbox, error)) (store.Sandbox, error) {
+	for range attempts {
+		name, err := generate()
+		if err != nil {
+			return store.Sandbox{}, err
+		}
+		sandbox, err := create(name)
+		if err == nil {
+			return sandbox, nil
+		}
+		var exists *store.AlreadyExistsError
+		if !errors.As(err, &exists) {
+			return store.Sandbox{}, err
+		}
+	}
+	return store.Sandbox{}, status.Error(codes.ResourceExhausted, "unable to generate a unique sandbox name")
+}
+
+func (s *Server) getSandboxFromRequest(ctx context.Context, req *agentsv1.GetSandboxRequest) (store.Sandbox, error) {
+	switch ref := req.GetRef().(type) {
+	case *agentsv1.GetSandboxRequest_Id:
+		id, err := parseUUID(ref.Id)
+		if err != nil {
+			return store.Sandbox{}, status.Errorf(codes.InvalidArgument, "id: %v", err)
+		}
+		sandbox, err := s.store.GetSandbox(ctx, id)
+		if err != nil {
+			return store.Sandbox{}, toStatusError(err)
+		}
+		return sandbox, nil
+	case *agentsv1.GetSandboxRequest_Name:
+		if ref.Name == nil {
+			return store.Sandbox{}, status.Error(codes.InvalidArgument, "name ref must be provided")
+		}
+		organizationID, err := parseUUID(ref.Name.GetOrganizationId())
+		if err != nil {
+			return store.Sandbox{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+		}
+		if err := validateSandboxName(ref.Name.GetName()); err != nil {
+			return store.Sandbox{}, status.Errorf(codes.InvalidArgument, "name: %v", err)
+		}
+		sandbox, err := s.store.GetSandboxByName(ctx, organizationID, ref.Name.GetName())
+		if err != nil {
+			return store.Sandbox{}, toStatusError(err)
+		}
+		return sandbox, nil
+	default:
+		return store.Sandbox{}, status.Error(codes.InvalidArgument, "id or name must be specified")
+	}
+}
+
+func (s *Server) updateSandboxStatusWithAuthorization(ctx context.Context, id string, relation string, next store.SandboxStatus) (store.Sandbox, error) {
+	sandboxID, err := parseUUID(id)
+	if err != nil {
+		return store.Sandbox{}, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	sandbox, err := s.store.GetSandbox(ctx, sandboxID)
+	if err != nil {
+		return store.Sandbox{}, toStatusError(err)
+	}
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return store.Sandbox{}, err
+	}
+	if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, relation); err != nil {
+		return store.Sandbox{}, err
+	}
+	if sandbox.Status == store.SandboxStatusTerminated {
+		return store.Sandbox{}, status.Error(codes.FailedPrecondition, "terminated sandbox cannot be updated")
+	}
+	updated, err := s.store.UpdateSandbox(ctx, sandbox.Meta.ID, store.SandboxUpdate{Status: &next})
+	if err != nil {
+		return store.Sandbox{}, toStatusError(err)
+	}
+	s.publishSandboxUpdated(ctx, updated)
+	return updated, nil
+}
+
+func identityUUIDFromContext(ctx context.Context) (uuid.UUID, error) {
+	identityID, err := identityIDFromContext(ctx)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	id, err := parseUUID(identityID)
+	if err != nil {
+		return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
+	}
+	return id, nil
+}
+
+func validateSandboxName(name string) error {
+	if name == "" {
+		return fmt.Errorf("value is empty")
+	}
+	if len(name) > maxSandboxNameLength {
+		return fmt.Errorf("must be at most %d characters", maxSandboxNameLength)
+	}
+	if !sandboxNamePattern.MatchString(name) {
+		return fmt.Errorf("must match %s", sandboxNamePattern.String())
+	}
+	return nil
+}
+
+func generateSandboxName() (string, error) {
+	return generateSandboxNameWithReader(rand.Reader)
+}
+
+func generateSandboxNameWithReader(reader io.Reader) (string, error) {
+	adjective, err := randomSandboxWord(reader, sandboxAdjectives)
+	if err != nil {
+		return "", err
+	}
+	noun, err := randomSandboxWord(reader, sandboxNouns)
+	if err != nil {
+		return "", err
+	}
+	suffix, err := randomHexSuffix(reader)
+	if err != nil {
+		return "", err
+	}
+	return adjective + "-" + noun + "-" + suffix, nil
+}
+
+func randomSandboxWord(reader io.Reader, words []string) (string, error) {
+	index, err := rand.Int(reader, big.NewInt(int64(len(words))))
+	if err != nil {
+		return "", err
+	}
+	return words[index.Int64()], nil
+}
+
+func randomHexSuffix(reader io.Reader) (string, error) {
+	bytes := make([]byte, 4)
+	if _, err := io.ReadFull(reader, bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func sandboxStatusToProto(sandboxStatus store.SandboxStatus) agentsv1.SandboxStatus {
+	switch sandboxStatus {
+	case store.SandboxStatusStarting:
+		return agentsv1.SandboxStatus_SANDBOX_STATUS_STARTING
+	case store.SandboxStatusRunning:
+		return agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING
+	case store.SandboxStatusStopped:
+		return agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED
+	case store.SandboxStatusFailed:
+		return agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED
+	case store.SandboxStatusTerminated:
+		return agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED
+	default:
+		panic(fmt.Sprintf("unknown sandbox status %q", sandboxStatus))
+	}
+}

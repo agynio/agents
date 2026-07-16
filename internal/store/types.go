@@ -51,6 +51,16 @@ const (
 	AgentRoleParticipant AgentRole = "participant"
 )
 
+type SandboxStatus string
+
+const (
+	SandboxStatusStarting   SandboxStatus = "starting"
+	SandboxStatusRunning    SandboxStatus = "running"
+	SandboxStatusStopped    SandboxStatus = "stopped"
+	SandboxStatusFailed     SandboxStatus = "failed"
+	SandboxStatusTerminated SandboxStatus = "terminated"
+)
+
 type AgentRoleAssignment struct {
 	AgentID    uuid.UUID
 	IdentityID uuid.UUID
@@ -120,6 +130,29 @@ type Env struct {
 	HookID      *uuid.UUID
 	Value       *string
 	SecretID    *uuid.UUID
+}
+
+type Environment struct {
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Name           string
+	FlavorID       uuid.UUID
+	Image          string
+	FlavorName     string
+}
+
+type Sandbox struct {
+	Meta            EntityMeta
+	OrganizationID  uuid.UUID
+	Name            string
+	EnvironmentID   uuid.UUID
+	OwnerID         uuid.UUID
+	Status          SandboxStatus
+	IdleTimeout     string
+	TTL             string
+	LastSessionAt   *time.Time
+	EnvironmentName string
+	WorkloadID      *uuid.UUID
 }
 
 type InitScript struct {
@@ -267,6 +300,33 @@ type InitScriptUpdate struct {
 	Description *string
 }
 
+type EnvironmentInput struct {
+	Name     string
+	FlavorID uuid.UUID
+	Image    string
+}
+
+type EnvironmentUpdate struct {
+	Name     *string
+	FlavorID *uuid.UUID
+	Image    *string
+}
+
+type SandboxInput struct {
+	Name          string
+	EnvironmentID uuid.UUID
+	OwnerID       uuid.UUID
+	Status        SandboxStatus
+	IdleTimeout   string
+	TTL           string
+}
+
+type SandboxUpdate struct {
+	Status        *SandboxStatus
+	LastSessionAt *time.Time
+	WorkloadID    *uuid.UUID
+}
+
 type AgentFilter struct{}
 
 type VolumeFilter struct{}
@@ -307,6 +367,13 @@ type InitScriptFilter struct {
 	AgentID *uuid.UUID
 	McpID   *uuid.UUID
 	HookID  *uuid.UUID
+}
+
+type EnvironmentFilter struct{}
+
+type SandboxFilter struct {
+	OwnerID           *uuid.UUID
+	IncludeTerminated bool
 }
 
 type PageCursor struct {
@@ -356,4 +423,14 @@ type EnvListResult struct {
 type InitScriptListResult struct {
 	InitScripts []InitScript
 	NextCursor  *PageCursor
+}
+
+type EnvironmentListResult struct {
+	Environments []Environment
+	NextCursor   *PageCursor
+}
+
+type SandboxListResult struct {
+	Sandboxes  []Sandbox
+	NextCursor *PageCursor
 }

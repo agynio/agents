@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +59,124 @@ func TestToProtoVolumeOmitsTTLWhenNil(t *testing.T) {
 	protoVolume := toProtoVolume(volume)
 	if protoVolume.Ttl != nil {
 		t.Fatalf("expected ttl to be nil")
+	}
+}
+
+func TestValidateSandboxName(t *testing.T) {
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{name: "brave-otter"},
+		{name: "sandbox1"},
+		{name: "", wantErr: true},
+		{name: "Brave", wantErr: true},
+		{name: "brave_otter", wantErr: true},
+		{name: strings.Repeat("a", 64), wantErr: true},
+	}
+
+	for _, test := range tests {
+		err := validateSandboxName(test.name)
+		if (err != nil) != test.wantErr {
+			t.Fatalf("validateSandboxName(%q) error = %v, wantErr %v", test.name, err, test.wantErr)
+		}
+	}
+}
+
+func TestGenerateSandboxNameMatchesPattern(t *testing.T) {
+	name, err := generateSandboxNameWithReader(bytes.NewReader([]byte{0, 0, 0xaa, 0xbb, 0xcc, 0xdd}))
+	if err != nil {
+		t.Fatalf("generate sandbox name: %v", err)
+	}
+	if err := validateSandboxName(name); err != nil {
+		t.Fatalf("generated name %q failed validation: %v", name, err)
+	}
+	if !strings.HasSuffix(name, "-aabbccdd") {
+		t.Fatalf("expected hex suffix, got %q", name)
+	}
+}
+
+func TestCreateSandboxWithGeneratedNameRetriesCollisions(t *testing.T) {
+	created := 0
+	generated := []string{"brave-otter-00000001", "brave-otter-00000002"}
+	generate := func() (string, error) {
+		name := generated[created]
+		created++
+		return name, nil
+	}
+	create := func(name string) (store.Sandbox, error) {
+		if name == generated[0] {
+			return store.Sandbox{}, store.AlreadyExists("sandbox")
+		}
+		return store.Sandbox{Name: name}, nil
+	}
+
+	sandbox, err := createSandboxWithGeneratedName(2, generate, create)
+	if err != nil {
+		t.Fatalf("create sandbox with generated name: %v", err)
+	}
+	if sandbox.Name != generated[1] {
+		t.Fatalf("expected retried generated name %q, got %q", generated[1], sandbox.Name)
+	}
+}
+
+func TestCreateSandboxWithGeneratedNameExhaustsCollisions(t *testing.T) {
+	generate := func() (string, error) { return "brave-otter-00000001", nil }
+	create := func(string) (store.Sandbox, error) { return store.Sandbox{}, store.AlreadyExists("sandbox") }
+
+	_, err := createSandboxWithGeneratedName(2, generate, create)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("expected resource exhausted, got %v", err)
+	}
+}
+
+func TestCreateSandboxWithGeneratedNamePropagatesNonCollision(t *testing.T) {
+	wantErr := fmt.Errorf("store failed")
+	generate := func() (string, error) { return "brave-otter-00000001", nil }
+	create := func(string) (store.Sandbox, error) { return store.Sandbox{}, wantErr }
+
+	_, err := createSandboxWithGeneratedName(2, generate, create)
+	if err != wantErr {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
+func TestToProtoSandboxIncludesFoundationFields(t *testing.T) {
+	lastSessionAt := time.Now().UTC()
+	workloadID := uuid.New()
+	sandbox := store.Sandbox{
+		Meta: store.EntityMeta{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		OrganizationID:  uuid.New(),
+		Name:            "brave-otter",
+		EnvironmentID:   uuid.New(),
+		OwnerID:         uuid.New(),
+		Status:          store.SandboxStatusRunning,
+		IdleTimeout:     "30m",
+		TTL:             "72h",
+		LastSessionAt:   &lastSessionAt,
+		EnvironmentName: "default",
+		WorkloadID:      &workloadID,
+	}
+
+	protoSandbox := toProtoSandbox(sandbox)
+	if protoSandbox.GetName() != sandbox.Name {
+		t.Fatalf("expected name %q, got %q", sandbox.Name, protoSandbox.GetName())
+	}
+	if protoSandbox.GetStatus() != agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING {
+		t.Fatalf("expected running status, got %v", protoSandbox.GetStatus())
+	}
+	if protoSandbox.GetEnvironmentName() != sandbox.EnvironmentName {
+		t.Fatalf("expected environment name %q, got %q", sandbox.EnvironmentName, protoSandbox.GetEnvironmentName())
+	}
+	if protoSandbox.GetWorkloadId() != workloadID.String() {
+		t.Fatalf("expected workload id %q, got %q", workloadID, protoSandbox.GetWorkloadId())
+	}
+	if protoSandbox.GetLastSessionAt() == nil {
+		t.Fatalf("expected last_session_at")
 	}
 }
 

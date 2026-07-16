@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
@@ -88,11 +89,107 @@ func TestRestoreAgentAuthorizationWritesAgentOrganizationMembership(t *testing.T
 	assertTuples(t, request.GetDeletes(), nil)
 }
 
-type recordingAuthorizationWriter struct {
-	writes []*authorizationv1.WriteRequest
+func TestAddSandboxAuthorizationWritesOrgAndOwner(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	sandboxID := uuid.New()
+	organizationID := uuid.New()
+	ownerID := uuid.New()
+
+	if err := server.addSandboxAuthorization(context.Background(), sandboxID, organizationID, ownerID); err != nil {
+		t.Fatalf("add sandbox authorization: %v", err)
+	}
+
+	request := singleWriteRequest(t, authz)
+	assertTuples(t, request.GetWrites(), []*authorizationv1.TupleKey{
+		sandboxOrganizationTuple(sandboxID, organizationID),
+		sandboxOwnerTuple(sandboxID, ownerID),
+	})
+	assertTuples(t, request.GetDeletes(), nil)
 }
 
-func (w *recordingAuthorizationWriter) Check(context.Context, *authorizationv1.CheckRequest, ...grpc.CallOption) (*authorizationv1.CheckResponse, error) {
+func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	sandboxID := uuid.New()
+	organizationID := uuid.New()
+	ownerID := uuid.New()
+
+	if err := server.removeSandboxAuthorization(context.Background(), sandboxID, organizationID, ownerID); err != nil {
+		t.Fatalf("remove sandbox authorization: %v", err)
+	}
+
+	request := singleWriteRequest(t, authz)
+	assertTuples(t, request.GetWrites(), nil)
+	assertTuples(t, request.GetDeletes(), []*authorizationv1.TupleKey{
+		sandboxOrganizationTuple(sandboxID, organizationID),
+		sandboxOwnerTuple(sandboxID, ownerID),
+	})
+}
+
+func TestSandboxListFilterDefaultsToCallerOwner(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	organizationID := uuid.New()
+	identityID := uuid.New()
+
+	filter, err := server.sandboxListFilter(context.Background(), &agentsv1.ListSandboxesRequest{}, organizationID, identityID)
+	if err != nil {
+		t.Fatalf("sandbox list filter: %v", err)
+	}
+	if filter.OwnerID == nil || *filter.OwnerID != identityID {
+		t.Fatalf("expected default owner filter %s, got %v", identityID, filter.OwnerID)
+	}
+	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
+		organizationRelationTuple(identityID, organizationID, "member"),
+	})
+}
+
+func TestSandboxListFilterAllowsOrgWideListAll(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	organizationID := uuid.New()
+	identityID := uuid.New()
+	allOwners := ""
+
+	filter, err := server.sandboxListFilter(context.Background(), &agentsv1.ListSandboxesRequest{OwnerId: &allOwners}, organizationID, identityID)
+	if err != nil {
+		t.Fatalf("sandbox list filter: %v", err)
+	}
+	if filter.OwnerID != nil {
+		t.Fatalf("expected no owner filter for list-all, got %v", filter.OwnerID)
+	}
+	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
+		organizationRelationTuple(identityID, organizationID, "can_list_sandboxes"),
+	})
+}
+
+func TestSandboxListFilterRequiresListPermissionForOtherOwner(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	organizationID := uuid.New()
+	identityID := uuid.New()
+	otherOwnerID := uuid.NewString()
+
+	filter, err := server.sandboxListFilter(context.Background(), &agentsv1.ListSandboxesRequest{OwnerId: &otherOwnerID}, organizationID, identityID)
+	if err != nil {
+		t.Fatalf("sandbox list filter: %v", err)
+	}
+	if filter.OwnerID == nil || filter.OwnerID.String() != otherOwnerID {
+		t.Fatalf("expected owner filter %s, got %v", otherOwnerID, filter.OwnerID)
+	}
+	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
+		organizationRelationTuple(identityID, organizationID, "can_list_sandboxes"),
+	})
+}
+
+type recordingAuthorizationWriter struct {
+	writes []*authorizationv1.WriteRequest
+	checks []*authorizationv1.CheckRequest
+}
+
+func (w *recordingAuthorizationWriter) Check(_ context.Context, req *authorizationv1.CheckRequest, _ ...grpc.CallOption) (*authorizationv1.CheckResponse, error) {
+	w.checks = append(w.checks, req)
 	return &authorizationv1.CheckResponse{Allowed: true}, nil
 }
 
@@ -126,5 +223,34 @@ func assertTuples(t *testing.T, actual []*authorizationv1.TupleKey, expected []*
 				actual[i].GetObject(),
 			)
 		}
+	}
+}
+
+func assertChecks(t *testing.T, actual []*authorizationv1.CheckRequest, expected []*authorizationv1.TupleKey) {
+	t.Helper()
+	if len(actual) != len(expected) {
+		t.Fatalf("expected %d checks, got %d: %#v", len(expected), len(actual), actual)
+	}
+	for i := range expected {
+		actualTuple := actual[i].GetTupleKey()
+		if actualTuple.GetUser() != expected[i].GetUser() || actualTuple.GetRelation() != expected[i].GetRelation() || actualTuple.GetObject() != expected[i].GetObject() {
+			t.Fatalf("check %d mismatch: expected user=%q relation=%q object=%q, got user=%q relation=%q object=%q",
+				i,
+				expected[i].GetUser(),
+				expected[i].GetRelation(),
+				expected[i].GetObject(),
+				actualTuple.GetUser(),
+				actualTuple.GetRelation(),
+				actualTuple.GetObject(),
+			)
+		}
+	}
+}
+
+func organizationRelationTuple(identityID uuid.UUID, organizationID uuid.UUID, relation string) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + identityID.String(),
+		Relation: relation,
+		Object:   organizationPrefix + organizationID.String(),
 	}
 }
