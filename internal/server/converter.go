@@ -108,6 +108,39 @@ func toProtoImagePullSecretAttachment(attachment store.ImagePullSecretAttachment
 	panic("image pull secret attachment missing target")
 }
 
+func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
+	return &agentsv1.Environment{
+		Meta:           toProtoEntityMeta(environment.Meta),
+		OrganizationId: environment.OrganizationID.String(),
+		Name:           environment.Name,
+		FlavorId:       environment.FlavorID.String(),
+		Image:          environment.Image,
+		FlavorName:     environment.FlavorName,
+	}
+}
+
+func toProtoSandbox(sandbox store.Sandbox) *agentsv1.Sandbox {
+	protoSandbox := &agentsv1.Sandbox{
+		Meta:            toProtoEntityMeta(sandbox.Meta),
+		OrganizationId:  sandbox.OrganizationID.String(),
+		Name:            sandbox.Name,
+		EnvironmentId:   sandbox.EnvironmentID.String(),
+		OwnerId:         sandbox.OwnerID.String(),
+		Status:          sandboxStatusToProto(sandbox.Status),
+		IdleTimeout:     sandbox.IdleTimeout,
+		Ttl:             sandbox.TTL,
+		EnvironmentName: sandbox.EnvironmentName,
+	}
+	if sandbox.LastSessionAt != nil {
+		protoSandbox.LastSessionAt = timestamppb.New(*sandbox.LastSessionAt)
+	}
+	if sandbox.WorkloadID != nil {
+		workloadID := sandbox.WorkloadID.String()
+		protoSandbox.WorkloadId = &workloadID
+	}
+	return protoSandbox
+}
+
 func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
 	return &agentsv1.Mcp{
 		Meta:        toProtoEntityMeta(mcp.Meta),

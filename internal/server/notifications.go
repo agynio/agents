@@ -4,13 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	notificationsv1 "github.com/agynio/agents/.gen/go/agynio/api/notifications/v1"
+	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const agentUpdatedEvent = "agent.updated"
+const (
+	agentUpdatedEvent   = "agent.updated"
+	sandboxUpdatedEvent = "sandbox.updated"
+)
 
 func (s *Server) publishAgentUpdated(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) {
 	payload, err := structpb.NewStruct(map[string]any{
@@ -39,6 +44,43 @@ func (s *Server) publishAgentUpdatedByID(ctx context.Context, agentID uuid.UUID)
 		return
 	}
 	s.publishAgentUpdated(ctx, agent.Meta.ID, agent.OrganizationID)
+}
+
+func (s *Server) publishSandboxUpdated(ctx context.Context, sandbox store.Sandbox) {
+	fields := map[string]any{
+		"sandbox_id":      sandbox.Meta.ID.String(),
+		"organization_id": sandbox.OrganizationID.String(),
+		"name":            sandbox.Name,
+		"environment_id":  sandbox.EnvironmentID.String(),
+		"owner_id":        sandbox.OwnerID.String(),
+		"status":          string(sandbox.Status),
+		"idle_timeout":    sandbox.IdleTimeout,
+		"ttl":             sandbox.TTL,
+		"last_session_at": nil,
+	}
+	if sandbox.LastSessionAt != nil {
+		fields["last_session_at"] = sandbox.LastSessionAt.UTC().Format(time.RFC3339Nano)
+	}
+	if sandbox.WorkloadID != nil {
+		fields["workload_id"] = sandbox.WorkloadID.String()
+	}
+	payload, err := structpb.NewStruct(fields)
+	if err != nil {
+		log.Printf("agents: build sandbox.updated payload: %v", err)
+		return
+	}
+	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
+		Event: sandboxUpdatedEvent,
+		Rooms: []string{
+			fmt.Sprintf("sandbox_owner:%s", sandbox.OwnerID),
+			fmt.Sprintf("sandbox_org:%s", sandbox.OrganizationID),
+		},
+		Payload: payload,
+		Source:  "agents",
+	})
+	if err != nil {
+		log.Printf("agents: publish sandbox.updated: %v", err)
+	}
 }
 
 func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID) (uuid.UUID, error) {
