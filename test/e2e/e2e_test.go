@@ -24,6 +24,21 @@ const (
 	testInitImage       = "ghcr.io/agynio/agent-init-codex:0.13.24"
 )
 
+func testAgentRequest(organizationID, name, role, description, configuration string) *agentsv1.CreateAgentRequest {
+	return &agentsv1.CreateAgentRequest{
+		OrganizationId: organizationID,
+		Name:           name,
+		Role:           role,
+		Model:          uuid.NewString(),
+		Description:    description,
+		Configuration:  configuration,
+		Image:          "agent-image:latest",
+		InitImage:      testInitImage,
+		Resources:      baseResources(),
+		Availability:   agentsv1.AgentAvailability_AGENT_AVAILABILITY_INTERNAL,
+	}
+}
+
 func TestAgentsServiceE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -38,46 +53,16 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("Agents", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp1, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Agent Alpha " + testID,
-			Role:           "engineer",
-			Model:          uuid.NewString(),
-			Description:    "First agent " + testID,
-			Configuration:  "config-alpha",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp1, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Agent Alpha "+testID, "engineer", "First agent "+testID, "config-alpha"))
 		require.NoError(t, err)
 		agentID1 := agentResp1.Agent.Meta.Id
 		require.Equal(t, testInitImage, agentResp1.Agent.InitImage)
 
-		agentResp2, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Agent Beta " + testID,
-			Role:           "analyst",
-			Model:          uuid.NewString(),
-			Description:    "Second agent " + testID,
-			Configuration:  "config-beta",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp2, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Agent Beta "+testID, "analyst", "Second agent "+testID, "config-beta"))
 		require.NoError(t, err)
 		agentID2 := agentResp2.Agent.Meta.Id
 
-		agentResp3, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationIDAlt,
-			Name:           "Agent Gamma " + testID,
-			Role:           "designer",
-			Model:          uuid.NewString(),
-			Description:    "Third agent " + testID,
-			Configuration:  "config-gamma",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp3, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationIDAlt, "Agent Gamma "+testID, "designer", "Third agent "+testID, "config-gamma"))
 		require.NoError(t, err)
 		agentID3 := agentResp3.Agent.Meta.Id
 
@@ -153,17 +138,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("Mcps", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Mcp Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Mcp agent " + testID,
-			Configuration:  "config-mcp",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Mcp Agent "+testID, "agent", "Mcp agent "+testID, "config-mcp"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -197,17 +172,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("Skills", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Skill Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Skill agent " + testID,
-			Configuration:  "config-skill",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Skill Agent "+testID, "agent", "Skill agent "+testID, "config-skill"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -238,17 +203,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("Hooks", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Hook Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Hook agent " + testID,
-			Configuration:  "config-hook",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Hook Agent "+testID, "agent", "Hook agent "+testID, "config-hook"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -281,17 +236,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("Envs", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Env Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Env agent " + testID,
-			Configuration:  "config-env",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Env Agent "+testID, "agent", "Env agent "+testID, "config-env"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -375,17 +320,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("InitScripts", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Init Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Init agent " + testID,
-			Configuration:  "config-init",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Init Agent "+testID, "agent", "Init agent "+testID, "config-init"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -465,17 +400,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 	t.Run("VolumeAttachments", func(t *testing.T) {
 		testID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Attachment Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Attachment agent " + testID,
-			Configuration:  "config-attachment",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Attachment Agent "+testID, "agent", "Attachment agent "+testID, "config-attachment"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -577,17 +502,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 	t.Run("ImagePullSecretAttachments", func(t *testing.T) {
 		testID := uuid.NewString()
 		imagePullSecretID := uuid.NewString()
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Image Pull Secret Agent " + testID,
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "Image pull secret agent " + testID,
-			Configuration:  "config-image-pull-secret",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Image Pull Secret Agent "+testID, "agent", "Image pull secret agent "+testID, "config-image-pull-secret"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 
@@ -704,17 +619,7 @@ func TestAgentsServiceE2E(t *testing.T) {
 		})
 		requireStatusCode(t, err, codes.FailedPrecondition)
 
-		agentResp, err := client.CreateAgent(ctx, &agentsv1.CreateAgentRequest{
-			OrganizationId: testOrganizationID,
-			Name:           "Negative Agent",
-			Role:           "agent",
-			Model:          uuid.NewString(),
-			Description:    "negative",
-			Configuration:  "config-negative",
-			Image:          "agent-image:latest",
-			InitImage:      testInitImage,
-			Resources:      baseResources(),
-		})
+		agentResp, err := client.CreateAgent(ctx, testAgentRequest(testOrganizationID, "Negative Agent", "agent", "negative", "config-negative"))
 		require.NoError(t, err)
 		agentID := agentResp.Agent.Meta.Id
 

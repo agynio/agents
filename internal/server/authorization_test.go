@@ -254,3 +254,47 @@ func organizationRelationTuple(identityID uuid.UUID, organizationID uuid.UUID, r
 		Object:   organizationPrefix + organizationID.String(),
 	}
 }
+
+func TestAddAgentInstanceAuthorizationWritesClassOrgMembership(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	instance := store.AgentInstance{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		AgentID:        uuid.New(),
+		OrganizationID: uuid.New(),
+	}
+
+	if err := server.addAgentInstanceAuthorization(context.Background(), instance); err != nil {
+		t.Fatalf("add agent instance authorization: %v", err)
+	}
+
+	request := singleWriteRequest(t, authz)
+	assertTuples(t, request.GetWrites(), []*authorizationv1.TupleKey{
+		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
+		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+	})
+	assertTuples(t, request.GetDeletes(), nil)
+}
+
+func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	instance := store.AgentInstance{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		AgentID:        uuid.New(),
+		OrganizationID: uuid.New(),
+	}
+
+	if err := server.removeAgentInstanceAuthorization(context.Background(), instance); err != nil {
+		t.Fatalf("remove agent instance authorization: %v", err)
+	}
+
+	request := singleWriteRequest(t, authz)
+	assertTuples(t, request.GetWrites(), nil)
+	assertTuples(t, request.GetDeletes(), []*authorizationv1.TupleKey{
+		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
+		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+	})
+}

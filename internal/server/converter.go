@@ -1,6 +1,8 @@
 package server
 
 import (
+	"github.com/google/uuid"
+
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	"github.com/agynio/agents/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -221,4 +223,56 @@ func toProtoInitScript(script store.InitScript) *agentsv1.InitScript {
 		return protoScript
 	}
 	panic("init script missing target")
+}
+
+func toProtoAgentInstance(instance store.AgentInstance) *agentsv1.AgentInstance {
+	protoInstance := &agentsv1.AgentInstance{
+		Meta:           toProtoEntityMeta(instance.Meta),
+		AgentId:        instance.AgentID.String(),
+		OrganizationId: instance.OrganizationID.String(),
+		Suffix:         instance.Suffix,
+		State:          agentInstanceStateToProto(instance.State),
+		LastActivityAt: timestamppb.New(instance.LastActivityAt),
+		Nickname:       instance.Nickname,
+		Handle:         "@" + instance.Nickname + "#" + instance.Suffix,
+	}
+	if instance.Label != nil {
+		protoInstance.Label = instance.Label
+	}
+	if instance.PauseReason != nil {
+		protoInstance.PauseReason = instance.PauseReason
+	}
+	return protoInstance
+}
+
+func toProtoInboxItem(item store.InboxItem) *agentsv1.InboxItem {
+	protoItem := &agentsv1.InboxItem{
+		Id:              item.ID.String(),
+		AgentInstanceId: item.AgentInstanceID.String(),
+		SourceKind:      inboxItemSourceKindToProto(item.SourceKind),
+		SenderId:        item.SenderID.String(),
+		Body:            item.Body,
+		FileIds:         uuidValuesToStrings(item.FileIDs),
+		AcceptedAt:      timestamppb.New(item.AcceptedAt),
+	}
+	if item.ThreadID != nil {
+		value := item.ThreadID.String()
+		protoItem.ThreadId = &value
+	}
+	if item.MessageID != nil {
+		value := item.MessageID.String()
+		protoItem.MessageId = &value
+	}
+	if item.AckedAt != nil {
+		protoItem.AckedAt = timestamppb.New(*item.AckedAt)
+	}
+	return protoItem
+}
+
+func uuidValuesToStrings(ids []uuid.UUID) []string {
+	values := make([]string, len(ids))
+	for i, id := range ids {
+		values[i] = id.String()
+	}
+	return values
 }

@@ -123,3 +123,51 @@ func (s *Server) publishAgentUpdatedForTarget(ctx context.Context, agentID *uuid
 	}
 	s.publishAgentUpdatedByID(ctx, resolvedID)
 }
+
+const (
+	instanceUpdatedEvent  = "instance.updated"
+	inboxItemCreatedEvent = "message.created"
+)
+
+func (s *Server) publishInstanceUpdated(ctx context.Context, instance store.AgentInstance) {
+	payload, err := structpb.NewStruct(map[string]any{
+		"agent_instance_id": instance.Meta.ID.String(),
+		"agent_id":          instance.AgentID.String(),
+		"organization_id":   instance.OrganizationID.String(),
+		"state":             string(instance.State),
+	})
+	if err != nil {
+		log.Printf("agents: build instance.updated payload: %v", err)
+		return
+	}
+	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
+		Event:   instanceUpdatedEvent,
+		Rooms:   []string{fmt.Sprintf("agent_instance:%s", instance.Meta.ID)},
+		Payload: payload,
+		Source:  "agents",
+	})
+	if err != nil {
+		log.Printf("agents: publish instance.updated: %v", err)
+	}
+}
+
+func (s *Server) publishInboxItemCreated(ctx context.Context, item store.InboxItem) {
+	payload, err := structpb.NewStruct(map[string]any{
+		"inbox_item_id":     item.ID.String(),
+		"agent_instance_id": item.AgentInstanceID.String(),
+		"source_kind":       string(item.SourceKind),
+	})
+	if err != nil {
+		log.Printf("agents: build inbox message.created payload: %v", err)
+		return
+	}
+	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
+		Event:   inboxItemCreatedEvent,
+		Rooms:   []string{fmt.Sprintf("instance_inbox:%s", item.AgentInstanceID)},
+		Payload: payload,
+		Source:  "agents",
+	})
+	if err != nil {
+		log.Printf("agents: publish inbox message.created: %v", err)
+	}
+}

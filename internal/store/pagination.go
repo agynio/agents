@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -40,4 +42,32 @@ func DecodePageToken(token string) (uuid.UUID, error) {
 		return uuid.UUID{}, fmt.Errorf("parse token: %w", err)
 	}
 	return value, nil
+}
+
+func EncodeInboxPageToken(acceptedAt time.Time, id uuid.UUID) string {
+	value := acceptedAt.UTC().Format(time.RFC3339Nano) + "|" + id.String()
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
+
+func DecodeInboxPageToken(token string) (time.Time, uuid.UUID, error) {
+	if token == "" {
+		return time.Time{}, uuid.UUID{}, errors.New("empty token")
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return time.Time{}, uuid.UUID{}, fmt.Errorf("decode token: %w", err)
+	}
+	acceptedAtValue, idValue, ok := strings.Cut(string(decoded), "|")
+	if !ok {
+		return time.Time{}, uuid.UUID{}, fmt.Errorf("missing separator")
+	}
+	acceptedAt, err := time.Parse(time.RFC3339Nano, acceptedAtValue)
+	if err != nil {
+		return time.Time{}, uuid.UUID{}, fmt.Errorf("parse accepted_at: %w", err)
+	}
+	id, err := uuid.Parse(idValue)
+	if err != nil {
+		return time.Time{}, uuid.UUID{}, fmt.Errorf("parse id: %w", err)
+	}
+	return acceptedAt, id, nil
 }

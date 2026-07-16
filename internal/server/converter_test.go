@@ -229,3 +229,37 @@ func (noopNotificationsClient) Publish(context.Context, *notificationsv1.Publish
 func (noopNotificationsClient) Subscribe(context.Context, *notificationsv1.SubscribeRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[notificationsv1.SubscribeResponse], error) {
 	return nil, status.Error(codes.Unimplemented, "subscribe")
 }
+
+func TestToProtoAgentInstanceBuildsHandle(t *testing.T) {
+	label := "research"
+	pauseReason := "manual"
+	instance := store.AgentInstance{
+		Meta: store.EntityMeta{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		AgentID:        uuid.New(),
+		OrganizationID: uuid.New(),
+		Label:          &label,
+		Suffix:         label,
+		State:          store.AgentInstanceStatePaused,
+		PauseReason:    &pauseReason,
+		LastActivityAt: time.Now(),
+		Nickname:       "bob",
+	}
+
+	protoInstance := toProtoAgentInstance(instance)
+	if protoInstance.GetHandle() != "@bob#research" {
+		t.Fatalf("unexpected handle %q", protoInstance.GetHandle())
+	}
+	if protoInstance.GetState() != agentsv1.AgentInstanceState_AGENT_INSTANCE_STATE_PAUSED {
+		t.Fatalf("unexpected state %v", protoInstance.GetState())
+	}
+	if protoInstance.GetLabel() != label {
+		t.Fatalf("unexpected label %q", protoInstance.GetLabel())
+	}
+	if protoInstance.GetPauseReason() != pauseReason {
+		t.Fatalf("unexpected pause reason %q", protoInstance.GetPauseReason())
+	}
+}
