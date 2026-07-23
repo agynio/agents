@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	notificationsv1 "github.com/agynio/agents/.gen/go/agynio/api/notifications/v1"
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
@@ -85,6 +86,32 @@ func TestPublishSandboxUpdatedUsesNullOptionalPayloadFields(t *testing.T) {
 	if fields["last_session_at"].GetNullValue() != 0 {
 		t.Fatalf("expected last_session_at null, got %v", fields["last_session_at"])
 	}
+}
+
+func TestSandboxRuntimeStateUpdatedResponsePublishesNotification(t *testing.T) {
+	notifications := &recordingNotificationsClient{}
+	server := &Server{notifications: notifications}
+	sandbox := store.Sandbox{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		OrganizationID: uuid.New(),
+		Name:           "brave-otter-aabbccdd",
+		EnvironmentID:  uuid.New(),
+		OwnerID:        uuid.New(),
+		Status:         store.SandboxStatusStopped,
+		IdleTimeout:    "30m",
+		TTL:            "72h",
+	}
+
+	response := server.sandboxRuntimeStateUpdatedResponse(context.Background(), sandbox)
+
+	if response.GetSandbox().GetStatus() != agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED {
+		t.Fatalf("expected stopped response, got %v", response.GetSandbox().GetStatus())
+	}
+	if len(notifications.published) != 1 {
+		t.Fatalf("expected 1 publish request, got %d", len(notifications.published))
+	}
+	fields := notifications.published[0].GetPayload().GetFields()
+	assertStringField(t, fields, "status", string(store.SandboxStatusStopped))
 }
 
 type recordingNotificationsClient struct {

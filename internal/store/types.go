@@ -397,9 +397,10 @@ type SandboxInput struct {
 }
 
 type SandboxUpdate struct {
-	Status        *SandboxStatus
-	LastSessionAt *time.Time
-	WorkloadID    *uuid.UUID
+	Status          *SandboxStatus
+	LastSessionAt   *time.Time
+	WorkloadID      *uuid.UUID
+	ClearWorkloadID bool
 }
 
 type AgentFilter struct{}
