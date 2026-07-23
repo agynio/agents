@@ -23,3 +23,28 @@ spec:
               - POST
             paths:
               - /agynio.api.agents.v1.AgentsService/FanoutInboxItem
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ .Release.Name }}-update-sandbox-runtime-state
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - "cluster.local/ns/{{ .Release.Namespace }}/sa/agents-orchestrator"
+      to:
+        - operation:
+            methods:
+              - POST
+            paths:
+              - /agynio.api.agents.v1.AgentsService/UpdateSandboxRuntimeState
