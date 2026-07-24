@@ -315,13 +315,53 @@ func (s *Server) EnsureSandboxRunning(ctx context.Context, req *agentsv1.EnsureS
 	if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_connect"); err != nil {
 		return nil, err
 	}
-	if sandbox.Status == store.SandboxStatusTerminated {
-		return nil, status.Error(codes.FailedPrecondition, "terminated sandbox cannot be started")
+	update, shouldUpdate, err := sandboxRestartOnConnectUpdate(sandbox.Status)
+	if err != nil {
+		return nil, err
 	}
-	if sandbox.Status == store.SandboxStatusStopped || sandbox.Status == store.SandboxStatusFailed {
-		return nil, status.Error(codes.Unimplemented, "sandbox runtime orchestration is not yet available")
+	if shouldUpdate {
+		sandbox, err = s.store.UpdateSandbox(ctx, sandbox.Meta.ID, update)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		s.publishSandboxUpdated(ctx, sandbox)
 	}
 	return &agentsv1.EnsureSandboxRunningResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+func (s *Server) UpdateSandboxRuntimeState(ctx context.Context, req *agentsv1.UpdateSandboxRuntimeStateRequest) (*agentsv1.UpdateSandboxRuntimeStateResponse, error) {
+	sandboxID, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	update, err := sandboxRuntimeStateUpdateFromProto(req)
+	if err != nil {
+		return nil, err
+	}
+	sandbox, err := s.store.UpdateSandbox(ctx, sandboxID, update)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	return s.sandboxRuntimeStateUpdatedResponse(ctx, sandbox), nil
+}
+
+func (s *Server) sandboxRuntimeStateUpdatedResponse(ctx context.Context, sandbox store.Sandbox) *agentsv1.UpdateSandboxRuntimeStateResponse {
+	s.publishSandboxUpdated(ctx, sandbox)
+	return &agentsv1.UpdateSandboxRuntimeStateResponse{Sandbox: toProtoSandbox(sandbox)}
+}
+
+func sandboxRestartOnConnectUpdate(sandboxStatus store.SandboxStatus) (store.SandboxUpdate, bool, error) {
+	switch sandboxStatus {
+	case store.SandboxStatusRunning, store.SandboxStatusStarting:
+		return store.SandboxUpdate{}, false, nil
+	case store.SandboxStatusStopped, store.SandboxStatusFailed:
+		starting := store.SandboxStatusStarting
+		return store.SandboxUpdate{Status: &starting, ClearWorkloadID: true}, true, nil
+	case store.SandboxStatusTerminated:
+		return store.SandboxUpdate{}, false, status.Error(codes.FailedPrecondition, "terminated sandbox cannot be started")
+	default:
+		panic(fmt.Sprintf("unknown sandbox status %q", sandboxStatus))
+	}
 }
 
 func (s *Server) UpdateSandboxLastSession(ctx context.Context, req *agentsv1.UpdateSandboxLastSessionRequest) (*agentsv1.UpdateSandboxLastSessionResponse, error) {
@@ -508,5 +548,55 @@ func sandboxStatusToProto(sandboxStatus store.SandboxStatus) agentsv1.SandboxSta
 		return agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED
 	default:
 		panic(fmt.Sprintf("unknown sandbox status %q", sandboxStatus))
+	}
+}
+
+func sandboxRuntimeStateUpdateFromProto(req *agentsv1.UpdateSandboxRuntimeStateRequest) (store.SandboxUpdate, error) {
+	update := store.SandboxUpdate{}
+	if req.Status != nil {
+		statusValue, err := sandboxStatusFromProto(req.GetStatus())
+		if err != nil {
+			return store.SandboxUpdate{}, status.Errorf(codes.InvalidArgument, "status: %v", err)
+		}
+		update.Status = &statusValue
+	}
+	switch workload := req.GetWorkloadIdUpdate().(type) {
+	case *agentsv1.UpdateSandboxRuntimeStateRequest_WorkloadId:
+		workloadID, err := parseUUID(workload.WorkloadId)
+		if err != nil {
+			return store.SandboxUpdate{}, status.Errorf(codes.InvalidArgument, "workload_id: %v", err)
+		}
+		update.WorkloadID = &workloadID
+	case *agentsv1.UpdateSandboxRuntimeStateRequest_ClearWorkloadId:
+		if !workload.ClearWorkloadId {
+			return store.SandboxUpdate{}, status.Error(codes.InvalidArgument, "clear_workload_id must be true when provided")
+		}
+		update.ClearWorkloadID = true
+	case nil:
+	default:
+		return store.SandboxUpdate{}, status.Error(codes.InvalidArgument, "unknown workload_id update")
+	}
+	if update.Status == nil && update.WorkloadID == nil && !update.ClearWorkloadID {
+		return store.SandboxUpdate{}, status.Error(codes.InvalidArgument, "at least one runtime state field must be provided")
+	}
+	return update, nil
+}
+
+func sandboxStatusFromProto(sandboxStatus agentsv1.SandboxStatus) (store.SandboxStatus, error) {
+	switch sandboxStatus {
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_STARTING:
+		return store.SandboxStatusStarting, nil
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING:
+		return store.SandboxStatusRunning, nil
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED:
+		return store.SandboxStatusStopped, nil
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED:
+		return store.SandboxStatusFailed, nil
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_TERMINATED:
+		return store.SandboxStatusTerminated, nil
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED:
+		return "", fmt.Errorf("must be starting, running, stopped, failed, or terminated")
+	default:
+		return "", fmt.Errorf("unknown value %d", sandboxStatus)
 	}
 }

@@ -29,3 +29,14 @@ func TestDecodeInboxPageTokenRejectsIDOnlyToken(t *testing.T) {
 		t.Fatalf("expected id-only token to be rejected")
 	}
 }
+
+func TestSandboxUpdateRejectsSetAndClearWorkloadID(t *testing.T) {
+	workloadID := uuid.New()
+	_, err := New(nil).UpdateSandbox(t.Context(), uuid.New(), SandboxUpdate{
+		WorkloadID:      &workloadID,
+		ClearWorkloadID: true,
+	})
+	if err == nil {
+		t.Fatalf("expected set and clear workload_id to be rejected")
+	}
+}

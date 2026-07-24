@@ -141,6 +141,113 @@ func TestCreateSandboxWithGeneratedNamePropagatesNonCollision(t *testing.T) {
 	}
 }
 
+func TestSandboxRuntimeStateUpdateFromProtoSetsStatusAndWorkload(t *testing.T) {
+	workloadID := uuid.New()
+	update, err := sandboxRuntimeStateUpdateFromProto(&agentsv1.UpdateSandboxRuntimeStateRequest{
+		Status: ptr(agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING),
+		WorkloadIdUpdate: &agentsv1.UpdateSandboxRuntimeStateRequest_WorkloadId{
+			WorkloadId: workloadID.String(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("runtime state update: %v", err)
+	}
+	if update.Status == nil || *update.Status != store.SandboxStatusRunning {
+		t.Fatalf("expected running status, got %v", update.Status)
+	}
+	if update.WorkloadID == nil || *update.WorkloadID != workloadID {
+		t.Fatalf("expected workload id %s, got %v", workloadID, update.WorkloadID)
+	}
+	if update.ClearWorkloadID {
+		t.Fatalf("expected workload id to remain set")
+	}
+}
+
+func TestSandboxRuntimeStateUpdateFromProtoClearsWorkload(t *testing.T) {
+	update, err := sandboxRuntimeStateUpdateFromProto(&agentsv1.UpdateSandboxRuntimeStateRequest{
+		WorkloadIdUpdate: &agentsv1.UpdateSandboxRuntimeStateRequest_ClearWorkloadId{ClearWorkloadId: true},
+	})
+	if err != nil {
+		t.Fatalf("runtime state update: %v", err)
+	}
+	if !update.ClearWorkloadID {
+		t.Fatalf("expected workload id clear")
+	}
+	if update.WorkloadID != nil {
+		t.Fatalf("expected no workload id, got %v", update.WorkloadID)
+	}
+}
+
+func TestSandboxRuntimeStateUpdateFromProtoRejectsEmptyUpdate(t *testing.T) {
+	_, err := sandboxRuntimeStateUpdateFromProto(&agentsv1.UpdateSandboxRuntimeStateRequest{})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+}
+
+func TestSandboxRuntimeStateUpdateFromProtoRejectsUnspecifiedStatus(t *testing.T) {
+	_, err := sandboxRuntimeStateUpdateFromProto(&agentsv1.UpdateSandboxRuntimeStateRequest{
+		Status: ptr(agentsv1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED),
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+}
+
+func TestSandboxRestartOnConnectUpdateStopped(t *testing.T) {
+	update, shouldUpdate, err := sandboxRestartOnConnectUpdate(store.SandboxStatusStopped)
+	if err != nil {
+		t.Fatalf("restart on connect update: %v", err)
+	}
+	if !shouldUpdate {
+		t.Fatalf("expected stopped sandbox to transition")
+	}
+	if update.Status == nil || *update.Status != store.SandboxStatusStarting {
+		t.Fatalf("expected starting status, got %v", update.Status)
+	}
+	if !update.ClearWorkloadID {
+		t.Fatalf("expected stale workload id to be cleared")
+	}
+}
+
+func TestSandboxRestartOnConnectUpdateFailed(t *testing.T) {
+	update, shouldUpdate, err := sandboxRestartOnConnectUpdate(store.SandboxStatusFailed)
+	if err != nil {
+		t.Fatalf("restart on connect update: %v", err)
+	}
+	if !shouldUpdate {
+		t.Fatalf("expected failed sandbox to transition")
+	}
+	if update.Status == nil || *update.Status != store.SandboxStatusStarting {
+		t.Fatalf("expected starting status, got %v", update.Status)
+	}
+	if !update.ClearWorkloadID {
+		t.Fatalf("expected stale workload id to be cleared")
+	}
+}
+
+func TestSandboxRestartOnConnectUpdateTerminated(t *testing.T) {
+	_, shouldUpdate, err := sandboxRestartOnConnectUpdate(store.SandboxStatusTerminated)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected failed precondition, got %v", err)
+	}
+	if shouldUpdate {
+		t.Fatalf("expected terminated sandbox to remain unchanged")
+	}
+}
+
+func TestSandboxRestartOnConnectUpdateRunningAndStarting(t *testing.T) {
+	for _, sandboxStatus := range []store.SandboxStatus{store.SandboxStatusRunning, store.SandboxStatusStarting} {
+		_, shouldUpdate, err := sandboxRestartOnConnectUpdate(sandboxStatus)
+		if err != nil {
+			t.Fatalf("restart on connect update for %s: %v", sandboxStatus, err)
+		}
+		if shouldUpdate {
+			t.Fatalf("expected %s sandbox to remain unchanged", sandboxStatus)
+		}
+	}
+}
+
 func TestToProtoSandboxIncludesFoundationFields(t *testing.T) {
 	lastSessionAt := time.Now().UTC()
 	workloadID := uuid.New()
@@ -228,6 +335,10 @@ func (noopNotificationsClient) Publish(context.Context, *notificationsv1.Publish
 
 func (noopNotificationsClient) Subscribe(context.Context, *notificationsv1.SubscribeRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[notificationsv1.SubscribeResponse], error) {
 	return nil, status.Error(codes.Unimplemented, "subscribe")
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }
 
 func TestToProtoAgentInstanceBuildsHandle(t *testing.T) {

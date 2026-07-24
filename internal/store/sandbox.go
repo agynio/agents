@@ -169,6 +169,9 @@ func (s *Store) GetSandboxByName(ctx context.Context, organizationID uuid.UUID, 
 }
 
 func (s *Store) UpdateSandbox(ctx context.Context, id uuid.UUID, update SandboxUpdate) (Sandbox, error) {
+	if update.WorkloadID != nil && update.ClearWorkloadID {
+		return Sandbox{}, fmt.Errorf("sandbox update cannot set and clear workload_id")
+	}
 	builder := updateBuilder{}
 	if update.Status != nil {
 		builder.add("status", *update.Status)
@@ -178,6 +181,9 @@ func (s *Store) UpdateSandbox(ctx context.Context, id uuid.UUID, update SandboxU
 	}
 	if update.WorkloadID != nil {
 		builder.add("workload_id", *update.WorkloadID)
+	}
+	if update.ClearWorkloadID {
+		builder.addNull("workload_id")
 	}
 	if builder.empty() {
 		return Sandbox{}, fmt.Errorf("sandbox update requires at least one field")
