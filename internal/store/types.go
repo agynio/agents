@@ -211,9 +211,15 @@ type Environment struct {
 	Meta           EntityMeta
 	OrganizationID uuid.UUID
 	Name           string
-	FlavorID       uuid.UUID
 	Image          string
-	FlavorName     string
+	// RunnerID is where workloads for this environment are placed, and Flavor
+	// names an entry in that runner's reported catalog. Flavor is resolved at
+	// workload start, not here.
+	RunnerID *uuid.UUID
+	Flavor   string
+	// Superseded by RunnerID and Flavor; retained for callers still reading it.
+	FlavorID   *uuid.UUID
+	FlavorName string
 }
 
 type Sandbox struct {
@@ -377,14 +383,16 @@ type InitScriptUpdate struct {
 
 type EnvironmentInput struct {
 	Name     string
-	FlavorID uuid.UUID
 	Image    string
+	RunnerID *uuid.UUID
+	Flavor   string
 }
 
 type EnvironmentUpdate struct {
 	Name     *string
-	FlavorID *uuid.UUID
 	Image    *string
+	RunnerID *uuid.UUID
+	Flavor   *string
 }
 
 type SandboxInput struct {

@@ -35,9 +35,9 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	flavorID, err := parseUUID(req.GetFlavorId())
+	runnerID, err := parseUUID(req.GetRunnerId())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "flavor_id: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 	}
 	if err := validateSandboxName(req.GetName()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
@@ -45,10 +45,14 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if req.GetImage() == "" {
 		return nil, status.Error(codes.InvalidArgument, "image is required")
 	}
+	// The flavor name is deliberately not checked against the runner's catalog:
+	// it is resolved at workload start so an environment and the runner
+	// configuration naming its flavor can be applied in either order.
 	environment, err := s.store.CreateEnvironment(ctx, organizationID, store.EnvironmentInput{
 		Name:     req.GetName(),
-		FlavorID: flavorID,
 		Image:    req.GetImage(),
+		RunnerID: &runnerID,
+		Flavor:   req.GetFlavor(),
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -73,7 +77,7 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.FlavorId == nil && req.Image == nil {
+	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	update := store.EnvironmentUpdate{}
@@ -84,12 +88,16 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 		}
 		update.Name = &name
 	}
-	if req.FlavorId != nil {
-		flavorID, err := parseUUID(req.GetFlavorId())
+	if req.RunnerId != nil {
+		runnerID, err := parseUUID(req.GetRunnerId())
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "flavor_id: %v", err)
+			return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 		}
-		update.FlavorID = &flavorID
+		update.RunnerID = &runnerID
+	}
+	if req.Flavor != nil {
+		flavor := req.GetFlavor()
+		update.Flavor = &flavor
 	}
 	if req.Image != nil {
 		image := req.GetImage()

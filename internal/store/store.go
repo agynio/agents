@@ -18,7 +18,7 @@ const (
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
-	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, created_at, updated_at`
+	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, created_at, updated_at`
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
 	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
@@ -185,6 +185,8 @@ func scanEnvironment(row pgx.Row) (Environment, error) {
 		&environment.FlavorID,
 		&environment.Image,
 		&environment.FlavorName,
+		&environment.RunnerID,
+		&environment.Flavor,
 		&environment.Meta.CreatedAt,
 		&environment.Meta.UpdatedAt,
 	); err != nil {

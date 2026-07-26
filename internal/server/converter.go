@@ -111,14 +111,23 @@ func toProtoImagePullSecretAttachment(attachment store.ImagePullSecretAttachment
 }
 
 func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
-	return &agentsv1.Environment{
+	proto := &agentsv1.Environment{
 		Meta:           toProtoEntityMeta(environment.Meta),
 		OrganizationId: environment.OrganizationID.String(),
 		Name:           environment.Name,
-		FlavorId:       environment.FlavorID.String(),
 		Image:          environment.Image,
+		Flavor:         environment.Flavor,
 		FlavorName:     environment.FlavorName,
 	}
+	if environment.RunnerID != nil {
+		proto.RunnerId = environment.RunnerID.String()
+	}
+	// Deprecated, and null for environments created since placement moved to
+	// runner plus flavor name.
+	if environment.FlavorID != nil {
+		proto.FlavorId = environment.FlavorID.String()
+	}
+	return proto
 }
 
 func toProtoSandbox(sandbox store.Sandbox) *agentsv1.Sandbox {
