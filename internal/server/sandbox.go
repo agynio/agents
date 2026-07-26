@@ -216,13 +216,29 @@ func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesR
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	identityID, err := identityUUIDFromContext(ctx)
+	// The Agents Orchestrator lists an organization's sandboxes to reconcile
+	// them and carries no identity, by design — it holds no OpenFGA tuples and
+	// reaches this RPC over the mesh rather than the Gateway. A caller that does
+	// present an identity is a user request and is filtered and checked as one.
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	filter, err := s.sandboxListFilter(ctx, req, organizationID, identityID)
-	if err != nil {
-		return nil, err
+	var filter store.SandboxFilter
+	if hasIdentity {
+		filter, err = s.sandboxListFilter(ctx, req, organizationID, identityID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		filter = store.SandboxFilter{IncludeTerminated: req.GetIncludeTerminated()}
+		if ownerID := req.GetOwnerId(); ownerID != "" {
+			parsed, parseErr := parseUUID(ownerID)
+			if parseErr != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "owner_id: %v", parseErr)
+			}
+			filter.OwnerID = &parsed
+		}
 	}
 	result, err := s.store.ListSandboxes(ctx, organizationID, filter, req.GetPageSize(), cursor)
 	if err != nil {
@@ -471,6 +487,21 @@ func (s *Server) updateSandboxStatusWithAuthorization(ctx context.Context, id st
 	}
 	s.publishSandboxUpdated(ctx, updated)
 	return updated, nil
+}
+
+// optionalIdentityUUIDFromContext reports the caller's identity when one is
+// present. Absence means an internal caller reaching the service over the mesh
+// rather than through the Gateway; a malformed identity is still an error.
+func optionalIdentityUUIDFromContext(ctx context.Context) (uuid.UUID, bool, error) {
+	identityID, ok := metadataValueFromIncomingContext(ctx, "x-identity-id")
+	if !ok {
+		return uuid.UUID{}, false, nil
+	}
+	id, err := parseUUID(identityID)
+	if err != nil {
+		return uuid.UUID{}, false, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
+	}
+	return id, true, nil
 }
 
 func identityUUIDFromContext(ctx context.Context) (uuid.UUID, error) {

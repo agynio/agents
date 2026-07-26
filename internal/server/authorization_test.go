@@ -10,6 +10,7 @@ import (
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestAddAgentAuthorizationWritesAgentOrganizationMembership(t *testing.T) {
@@ -297,4 +298,38 @@ func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T)
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
 	})
+}
+
+func TestOptionalIdentityAbsentForInternalCaller(t *testing.T) {
+	// The orchestrator reaches ListSandboxes over the mesh without an identity;
+	// absence must be reported rather than rejected, so the RPC can serve both
+	// the internal reconcile path and Gateway-fronted user requests.
+	id, ok, err := optionalIdentityUUIDFromContext(context.Background())
+	if err != nil {
+		t.Fatalf("optional identity: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected no identity, got %s", id)
+	}
+}
+
+func TestOptionalIdentityRejectsMalformedValue(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", "not-a-uuid"))
+
+	if _, _, err := optionalIdentityUUIDFromContext(ctx); err == nil {
+		t.Fatal("expected malformed identity to be rejected")
+	}
+}
+
+func TestOptionalIdentityReturnsCallerIdentity(t *testing.T) {
+	identityID := uuid.New()
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", identityID.String()))
+
+	got, ok, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		t.Fatalf("optional identity: %v", err)
+	}
+	if !ok || got != identityID {
+		t.Fatalf("expected identity %s, got %s (ok=%v)", identityID, got, ok)
+	}
 }
