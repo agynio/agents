@@ -128,7 +128,6 @@ dev:
     namespace: ${AGENTS_NAMESPACE}
     labelSelector:
       app.kubernetes.io/name: agents
-      app.kubernetes.io/instance: agents
     containers:
       agents:
         container: agents
