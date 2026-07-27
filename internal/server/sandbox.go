@@ -207,12 +207,26 @@ func (s *Server) GetSandbox(ctx context.Context, req *agentsv1.GetSandboxRequest
 	if err != nil {
 		return nil, err
 	}
-	if sandbox.OwnerID != identityID {
+	if !sandboxReadableWithoutCheck(sandbox, identityID) {
 		if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_list_all"); err != nil {
 			return nil, err
 		}
 	}
 	return &agentsv1.GetSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+// sandboxReadableWithoutCheck covers the two callers that need no tuple: the
+// owner, who holds one anyway, and the sandbox workload itself.
+//
+// A sandbox workload authenticates as its sandbox, and this is the record the
+// platform services it dials — Gateway, LLM Proxy, Tracing — resolve it through
+// to reach its organization and owner. It is not an organization member and
+// holds no tuple of its own, so an OpenFGA check would refuse it and the
+// resolution every one of those services depends on could not happen. Identity
+// equality answers it instead, the same way an agent instance reads its own
+// inbox.
+func sandboxReadableWithoutCheck(sandbox store.Sandbox, identityID uuid.UUID) bool {
+	return sandbox.OwnerID == identityID || sandbox.Meta.ID == identityID
 }
 
 func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesRequest) (*agentsv1.ListSandboxesResponse, error) {

@@ -128,6 +128,24 @@ func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
 	})
 }
 
+func TestSandboxReadableWithoutCheck(t *testing.T) {
+	sandboxID := uuid.New()
+	ownerID := uuid.New()
+	sandbox := store.Sandbox{Meta: store.EntityMeta{ID: sandboxID}, OwnerID: ownerID}
+
+	if !sandboxReadableWithoutCheck(sandbox, ownerID) {
+		t.Fatalf("expected the owner to read the sandbox without a check")
+	}
+	// The sandbox workload authenticates as its sandbox and holds no tuple; the
+	// platform services it dials resolve it through this record.
+	if !sandboxReadableWithoutCheck(sandbox, sandboxID) {
+		t.Fatalf("expected the sandbox workload to read its own record")
+	}
+	if sandboxReadableWithoutCheck(sandbox, uuid.New()) {
+		t.Fatalf("expected any other identity to need a check")
+	}
+}
+
 func TestSandboxListFilterDefaultsToCallerOwner(t *testing.T) {
 	authz := &recordingAuthorizationWriter{}
 	server := &Server{authz: authz}
