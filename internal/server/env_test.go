@@ -14,6 +14,10 @@ func identityContext(identityID uuid.UUID) context.Context {
 	return metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", identityID.String()))
 }
 
+func malformedIdentityContext() context.Context {
+	return metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", "not-a-uuid"))
+}
+
 // An env names a value or a secret belonging to one organization, and ListEnvs
 // used to authorize nothing at all: any caller who could reach the RPC could
 // read any organization's envs by naming an id from it.

@@ -153,18 +153,15 @@ func (s *Server) GetInstance(ctx context.Context, req *agentsv1.GetInstanceReque
 }
 
 func (s *Server) ListInstances(ctx context.Context, req *agentsv1.ListInstancesRequest) (*agentsv1.ListInstancesResponse, error) {
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
+	if err != nil {
+		return nil, err
+	}
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-	filter := store.AgentInstanceFilter{}
-	if req.GetOrganizationId() != "" {
-		organizationID, err := parseUUID(req.GetOrganizationId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-		}
-		filter.OrganizationID = &organizationID
-	}
+	filter := store.AgentInstanceFilter{OrganizationID: organizationID}
 	if req.AgentId != nil {
 		agentID, err := parseUUID(req.GetAgentId())
 		if err != nil {

@@ -41,6 +41,54 @@ func (s *Server) requireOrganizationMember(ctx context.Context, identityID uuid.
 	return nil
 }
 
+// organizationListScope settles which organization a list RPC reads, and
+// authorizes it.
+//
+// An internal caller reaches these RPCs over the mesh rather than the Gateway
+// and carries no identity by design — the Agents Orchestrator holds no OpenFGA
+// tuples, so a check could only ever refuse it — and reads whatever scope it
+// asked for, including none at all. A caller that does present an identity is a
+// user request: it names the organization it is reading and must be a member of
+// it, so it cannot reach the unscoped internal path by leaving the organization
+// out. A malformed identity is still rejected.
+//
+// The returned scope is nil only for an internal caller that named no
+// organization.
+func (s *Server) organizationListScope(ctx context.Context, organizationID string) (*uuid.UUID, error) {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !hasIdentity && organizationID == "" {
+		return nil, nil
+	}
+	parsed, err := parseUUID(organizationID)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if hasIdentity {
+		if err := s.requireOrganizationMember(ctx, identityID, parsed); err != nil {
+			return nil, err
+		}
+	}
+	return &parsed, nil
+}
+
+// requireOrganizationListAccess authorizes a list RPC that always names the
+// organization it reads, on the same terms as organizationListScope: an
+// identified caller must be a member of that organization, an internal caller
+// holds no tuples and is served.
+func (s *Server) requireOrganizationListAccess(ctx context.Context, organizationID uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	return s.requireOrganizationMember(ctx, identityID, organizationID)
+}
+
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
 	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }

@@ -125,13 +125,16 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvi
 }
 
 func (s *Server) ListEnvironments(ctx context.Context, req *agentsv1.ListEnvironmentsRequest) (*agentsv1.ListEnvironmentsResponse, error) {
-	cursor, err := decodePageCursor(req.GetPageToken())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
-	}
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if err := s.requireOrganizationListAccess(ctx, organizationID); err != nil {
+		return nil, err
+	}
+	cursor, err := decodePageCursor(req.GetPageToken())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 	result, err := s.store.ListEnvironments(ctx, organizationID, store.EnvironmentFilter{}, req.GetPageSize(), cursor)
 	if err != nil {

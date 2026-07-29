@@ -547,14 +547,9 @@ func (s *Server) ListMyAgentRoles(ctx context.Context, req *agentsv1.ListMyAgent
 }
 
 func (s *Server) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest) (*agentsv1.ListAgentsResponse, error) {
-	var organizationID *uuid.UUID
-	organizationValue := req.GetOrganizationId()
-	if organizationValue != "" {
-		parsedOrganizationID, err := parseUUID(organizationValue)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-		}
-		organizationID = &parsedOrganizationID
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
+	if err != nil {
+		return nil, err
 	}
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
@@ -660,6 +655,9 @@ func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesReque
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if err := s.requireOrganizationListAccess(ctx, organizationID); err != nil {
+		return nil, err
 	}
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
@@ -929,30 +927,11 @@ func (s *Server) imagePullSecretAttachmentListFilter(ctx context.Context, req *a
 		filter.EnvironmentID = &environmentID
 	}
 
-	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
 	if err != nil {
 		return store.ImagePullSecretAttachmentFilter{}, err
 	}
-	if !hasIdentity {
-		if req.GetOrganizationId() == "" {
-			return filter, nil
-		}
-		organizationID, err := parseUUID(req.GetOrganizationId())
-		if err != nil {
-			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-		}
-		filter.OrganizationID = &organizationID
-		return filter, nil
-	}
-
-	organizationID, err := parseUUID(req.GetOrganizationId())
-	if err != nil {
-		return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-	}
-	if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
-		return store.ImagePullSecretAttachmentFilter{}, err
-	}
-	filter.OrganizationID = &organizationID
+	filter.OrganizationID = organizationID
 	return filter, nil
 }
 
@@ -1462,30 +1441,11 @@ func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsReques
 		filter.EnvironmentID = &environmentID
 	}
 
-	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
 	if err != nil {
 		return store.EnvFilter{}, err
 	}
-	if !hasIdentity {
-		if req.GetOrganizationId() == "" {
-			return filter, nil
-		}
-		organizationID, err := parseUUID(req.GetOrganizationId())
-		if err != nil {
-			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-		}
-		filter.OrganizationID = &organizationID
-		return filter, nil
-	}
-
-	organizationID, err := parseUUID(req.GetOrganizationId())
-	if err != nil {
-		return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-	}
-	if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
-		return store.EnvFilter{}, err
-	}
-	filter.OrganizationID = &organizationID
+	filter.OrganizationID = organizationID
 	return filter, nil
 }
 
