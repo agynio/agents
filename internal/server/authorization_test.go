@@ -356,3 +356,16 @@ func TestOptionalIdentityReturnsCallerIdentity(t *testing.T) {
 		t.Fatalf("expected identity %s, got %s (ok=%v)", identityID, got, ok)
 	}
 }
+
+func TestGetSandboxServesTheInternalCallerWithoutAnIdentity(t *testing.T) {
+	// The Runners service resolves a sandbox-owned workload's owner through
+	// GetSandbox, and the Orchestrator reads it while reconciling. Neither
+	// carries an identity, and demanding one stalled every sandbox at starting.
+	_, hasIdentity, err := optionalIdentityUUIDFromContext(context.Background())
+	if err != nil {
+		t.Fatalf("optional identity: %v", err)
+	}
+	if hasIdentity {
+		t.Fatal("expected no identity for an internal caller")
+	}
+}

@@ -206,11 +206,16 @@ func (s *Server) GetSandbox(ctx context.Context, req *agentsv1.GetSandboxRequest
 	if err != nil {
 		return nil, err
 	}
-	identityID, err := identityUUIDFromContext(ctx)
+	// The Runners service resolves a sandbox-owned workload's owner through this
+	// record, and the Orchestrator reads it while reconciling. Both reach the
+	// service over the mesh carrying no identity, by design — they hold no
+	// OpenFGA tuples. A caller that does present an identity is a user request
+	// and is checked as one.
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if !sandboxReadableWithoutCheck(sandbox, identityID) {
+	if hasIdentity && !sandboxReadableWithoutCheck(sandbox, identityID) {
 		if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_list_all"); err != nil {
 			return nil, err
 		}
