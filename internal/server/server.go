@@ -1362,35 +1362,9 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-
-	hasFilter := false
-	filter := store.EnvFilter{}
-	if req.GetAgentId() != "" {
-		hasFilter = true
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
-	}
-	if req.GetMcpId() != "" {
-		hasFilter = true
-		mcpID, err := parseUUID(req.GetMcpId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
-		}
-		filter.McpID = &mcpID
-	}
-	if req.GetHookId() != "" {
-		hasFilter = true
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
-	}
-	if !hasFilter {
-		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
+	filter, err := s.envListFilter(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := s.store.ListEnvs(ctx, filter, req.GetPageSize(), cursor)
@@ -1399,6 +1373,73 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 	}
 	envs, nextToken := mapListResult(result.Envs, result.NextCursor, toProtoEnv)
 	return &agentsv1.ListEnvsResponse{Envs: envs, NextPageToken: nextToken}, nil
+}
+
+// envListFilter authorizes the read and narrows it.
+//
+// The Agents Orchestrator lists an environment's envs while assembling a
+// sandbox workload and carries no identity, by design — it holds no OpenFGA
+// tuples and reaches this RPC over the mesh rather than the Gateway. A caller
+// that does present an identity is a user request: it names the organization it
+// is reading and must be a member of it. The target ids only narrow the result
+// further; an env is a reference to a secret, and which organization's secrets
+// are being read is settled by the organization, not by them.
+func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsRequest) (store.EnvFilter, error) {
+	filter := store.EnvFilter{}
+	if req.GetAgentId() != "" {
+		agentID, err := parseUUID(req.GetAgentId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		filter.AgentID = &agentID
+	}
+	if req.GetMcpId() != "" {
+		mcpID, err := parseUUID(req.GetMcpId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		filter.McpID = &mcpID
+	}
+	if req.GetHookId() != "" {
+		hookID, err := parseUUID(req.GetHookId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
+		}
+		filter.HookID = &hookID
+	}
+	if req.GetEnvironmentId() != "" {
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		filter.EnvironmentID = &environmentID
+	}
+
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return store.EnvFilter{}, err
+	}
+	if !hasIdentity {
+		if req.GetOrganizationId() == "" {
+			return filter, nil
+		}
+		organizationID, err := parseUUID(req.GetOrganizationId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+		}
+		filter.OrganizationID = &organizationID
+		return filter, nil
+	}
+
+	organizationID, err := parseUUID(req.GetOrganizationId())
+	if err != nil {
+		return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
+		return store.EnvFilter{}, err
+	}
+	filter.OrganizationID = &organizationID
+	return filter, nil
 }
 
 func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitScriptRequest) (*agentsv1.CreateInitScriptResponse, error) {

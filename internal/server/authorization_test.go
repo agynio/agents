@@ -205,11 +205,16 @@ func TestSandboxListFilterRequiresListPermissionForOtherOwner(t *testing.T) {
 type recordingAuthorizationWriter struct {
 	writes []*authorizationv1.WriteRequest
 	checks []*authorizationv1.CheckRequest
+	// allowedObjects, when set, are the only objects a check is allowed against,
+	// which is how a caller holding tuples somewhere else is expressed. A nil map
+	// allows every check.
+	allowedObjects map[string]bool
 }
 
 func (w *recordingAuthorizationWriter) Check(_ context.Context, req *authorizationv1.CheckRequest, _ ...grpc.CallOption) (*authorizationv1.CheckResponse, error) {
 	w.checks = append(w.checks, req)
-	return &authorizationv1.CheckResponse{Allowed: true}, nil
+	allowed := w.allowedObjects == nil || w.allowedObjects[req.GetTupleKey().GetObject()]
+	return &authorizationv1.CheckResponse{Allowed: allowed}, nil
 }
 
 func (w *recordingAuthorizationWriter) Write(_ context.Context, req *authorizationv1.WriteRequest, _ ...grpc.CallOption) (*authorizationv1.WriteResponse, error) {
