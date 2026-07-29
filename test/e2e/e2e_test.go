@@ -576,10 +576,16 @@ func TestAgentsServiceE2E(t *testing.T) {
 		require.Equal(t, imagePullSecretID, getHookAttachmentResp.ImagePullSecretAttachment.ImagePullSecretId)
 		require.Equal(t, hookID, getHookAttachmentResp.ImagePullSecretAttachment.GetHookId())
 
-		attachments := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{ImagePullSecretId: imagePullSecretID})
+		attachments := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{OrganizationId: testOrganizationID, ImagePullSecretId: imagePullSecretID})
 		require.True(t, hasID(attachments, attachmentID))
 		require.True(t, hasID(attachments, mcpAttachmentID))
 		require.True(t, hasID(attachments, hookAttachmentID))
+
+		// The organization alone is enough; the target ids only narrow it.
+		attachmentsByOrganization := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{OrganizationId: testOrganizationID})
+		require.True(t, hasID(attachmentsByOrganization, attachmentID))
+		require.True(t, hasID(attachmentsByOrganization, mcpAttachmentID))
+		require.True(t, hasID(attachmentsByOrganization, hookAttachmentID))
 
 		_, err = client.DeleteImagePullSecretAttachment(ctx, &agentsv1.DeleteImagePullSecretAttachmentRequest{Id: hookAttachmentID})
 		require.NoError(t, err)

@@ -868,50 +868,9 @@ func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agents
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-	hasFilter := false
-	filter := store.ImagePullSecretAttachmentFilter{}
-	if req.GetImagePullSecretId() != "" {
-		hasFilter = true
-		imagePullSecretID, err := parseUUID(req.GetImagePullSecretId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "image_pull_secret_id: %v", err)
-		}
-		filter.ImagePullSecretID = &imagePullSecretID
-	}
-	if req.GetAgentId() != "" {
-		hasFilter = true
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
-	}
-	if req.GetMcpId() != "" {
-		hasFilter = true
-		mcpID, err := parseUUID(req.GetMcpId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
-		}
-		filter.McpID = &mcpID
-	}
-	if req.GetHookId() != "" {
-		hasFilter = true
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
-	}
-	if req.GetEnvironmentId() != "" {
-		hasFilter = true
-		environmentID, err := parseUUID(req.GetEnvironmentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
-		}
-		filter.EnvironmentID = &environmentID
-	}
-	if !hasFilter {
-		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
+	filter, err := s.imagePullSecretAttachmentListFilter(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := s.store.ListImagePullSecretAttachments(ctx, filter, req.GetPageSize(), cursor)
@@ -920,6 +879,81 @@ func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agents
 	}
 	attachments, nextToken := mapListResult(result.ImagePullSecretAttachments, result.NextCursor, toProtoImagePullSecretAttachment)
 	return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: attachments, NextPageToken: nextToken}, nil
+}
+
+// imagePullSecretAttachmentListFilter authorizes the read and narrows it.
+//
+// The Agents Orchestrator lists an environment's image pull secret attachments
+// while assembling a sandbox workload and carries no identity, by design — it
+// holds no OpenFGA tuples and reaches this RPC over the mesh rather than the
+// Gateway. A caller that does present an identity is a user request: it names
+// the organization it is reading and must be a member of it. The target ids
+// only narrow the result further; an attachment is a reference to a registry
+// credential, and which organization's credentials are being read is settled by
+// the organization, not by them.
+func (s *Server) imagePullSecretAttachmentListFilter(ctx context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest) (store.ImagePullSecretAttachmentFilter, error) {
+	filter := store.ImagePullSecretAttachmentFilter{}
+	if req.GetImagePullSecretId() != "" {
+		imagePullSecretID, err := parseUUID(req.GetImagePullSecretId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "image_pull_secret_id: %v", err)
+		}
+		filter.ImagePullSecretID = &imagePullSecretID
+	}
+	if req.GetAgentId() != "" {
+		agentID, err := parseUUID(req.GetAgentId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		filter.AgentID = &agentID
+	}
+	if req.GetMcpId() != "" {
+		mcpID, err := parseUUID(req.GetMcpId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		filter.McpID = &mcpID
+	}
+	if req.GetHookId() != "" {
+		hookID, err := parseUUID(req.GetHookId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
+		}
+		filter.HookID = &hookID
+	}
+	if req.GetEnvironmentId() != "" {
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		filter.EnvironmentID = &environmentID
+	}
+
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return store.ImagePullSecretAttachmentFilter{}, err
+	}
+	if !hasIdentity {
+		if req.GetOrganizationId() == "" {
+			return filter, nil
+		}
+		organizationID, err := parseUUID(req.GetOrganizationId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+		}
+		filter.OrganizationID = &organizationID
+		return filter, nil
+	}
+
+	organizationID, err := parseUUID(req.GetOrganizationId())
+	if err != nil {
+		return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
+		return store.ImagePullSecretAttachmentFilter{}, err
+	}
+	filter.OrganizationID = &organizationID
+	return filter, nil
 }
 
 func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) (*agentsv1.CreateMcpResponse, error) {
