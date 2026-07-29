@@ -30,6 +30,7 @@ const (
 	IdentityType_IDENTITY_TYPE_USER           IdentityType = 4
 	IdentityType_IDENTITY_TYPE_APP            IdentityType = 5
 	IdentityType_IDENTITY_TYPE_AGENT_INSTANCE IdentityType = 6
+	IdentityType_IDENTITY_TYPE_SANDBOX        IdentityType = 7
 )
 
 // Enum value maps for IdentityType.
@@ -41,6 +42,7 @@ var (
 		4: "IDENTITY_TYPE_USER",
 		5: "IDENTITY_TYPE_APP",
 		6: "IDENTITY_TYPE_AGENT_INSTANCE",
+		7: "IDENTITY_TYPE_SANDBOX",
 	}
 	IdentityType_value = map[string]int32{
 		"IDENTITY_TYPE_UNSPECIFIED":    0,
@@ -49,6 +51,7 @@ var (
 		"IDENTITY_TYPE_USER":           4,
 		"IDENTITY_TYPE_APP":            5,
 		"IDENTITY_TYPE_AGENT_INSTANCE": 6,
+		"IDENTITY_TYPE_SANDBOX":        7,
 	}
 )
 
@@ -960,14 +963,15 @@ const file_agynio_api_identity_v1_identity_proto_rawDesc = "" +
 	"\x0finstance_suffix\x18\x03 \x01(\tH\x00R\x0einstanceSuffix\x88\x01\x01B\x12\n" +
 	"\x10_instance_suffix\"\\\n" +
 	"\x19BatchGetNicknamesResponse\x12?\n" +
-	"\aentries\x18\x01 \x03(\v2%.agynio.api.identity.v1.NicknameEntryR\aentries*\xce\x01\n" +
+	"\aentries\x18\x01 \x03(\v2%.agynio.api.identity.v1.NicknameEntryR\aentries*\xe9\x01\n" +
 	"\fIdentityType\x12\x1d\n" +
 	"\x19IDENTITY_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13IDENTITY_TYPE_AGENT\x10\x01\x12\x18\n" +
 	"\x14IDENTITY_TYPE_RUNNER\x10\x02\x12\x16\n" +
 	"\x12IDENTITY_TYPE_USER\x10\x04\x12\x15\n" +
 	"\x11IDENTITY_TYPE_APP\x10\x05\x12 \n" +
-	"\x1cIDENTITY_TYPE_AGENT_INSTANCE\x10\x06\"\x04\b\x03\x10\x03*\x15IDENTITY_TYPE_CHANNEL2\xca\x06\n" +
+	"\x1cIDENTITY_TYPE_AGENT_INSTANCE\x10\x06\x12\x19\n" +
+	"\x15IDENTITY_TYPE_SANDBOX\x10\a\"\x04\b\x03\x10\x03*\x15IDENTITY_TYPE_CHANNEL2\xca\x06\n" +
 	"\x0fIdentityService\x12u\n" +
 	"\x10RegisterIdentity\x12/.agynio.api.identity.v1.RegisterIdentityRequest\x1a0.agynio.api.identity.v1.RegisterIdentityResponse\x12r\n" +
 	"\x0fGetIdentityType\x12..agynio.api.identity.v1.GetIdentityTypeRequest\x1a/.agynio.api.identity.v1.GetIdentityTypeResponse\x12\x84\x01\n" +

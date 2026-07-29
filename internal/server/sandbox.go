@@ -282,7 +282,7 @@ func (s *Server) sandboxListFilter(ctx context.Context, req *agentsv1.ListSandbo
 	filter := store.SandboxFilter{IncludeTerminated: req.GetIncludeTerminated()}
 	if req.OwnerId == nil {
 		filter.OwnerID = &identityID
-		if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
+		if err := s.requireOwnSandboxListing(ctx, identityID, organizationID); err != nil {
 			return store.SandboxFilter{}, err
 		}
 		return filter, nil
@@ -301,7 +301,7 @@ func (s *Server) sandboxListFilter(ctx context.Context, req *agentsv1.ListSandbo
 	}
 	filter.OwnerID = &ownerID
 	if ownerID == identityID {
-		if err := s.requireOrganizationMember(ctx, identityID, organizationID); err != nil {
+		if err := s.requireOwnSandboxListing(ctx, identityID, organizationID); err != nil {
 			return store.SandboxFilter{}, err
 		}
 		return filter, nil

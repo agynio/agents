@@ -93,6 +93,27 @@ func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uui
 	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }
 
+// requireOwnSandboxListing authorizes listing the caller's own sandboxes.
+//
+// Membership is the ordinary route. A cluster admin is not a member of every
+// organization it administers, though, and refusing it here while it may list
+// every sandbox in the same organization is incoherent — the narrower request
+// would be denied and the broader one allowed. So holding can_list_sandboxes
+// also satisfies this.
+func (s *Server) requireOwnSandboxListing(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID) error {
+	err := s.requireOrganizationMember(ctx, identityID, organizationID)
+	if err == nil {
+		return nil
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		return err
+	}
+	if listErr := s.requireOrganizationRelation(ctx, identityID, organizationID, "can_list_sandboxes"); listErr != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Server) requireSandboxRelation(ctx context.Context, identityID uuid.UUID, sandboxID uuid.UUID, relation string) error {
 	return s.requireAllowed(ctx, identityID, relation, sandboxPrefix+sandboxID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on sandbox", relation))
 }
