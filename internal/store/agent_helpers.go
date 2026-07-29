@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -43,6 +44,58 @@ func resolveAgentID(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *u
 		return agentIDForHook(ctx, tx, *hookID)
 	}
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
+}
+
+// touchEnvAgent marks the agent an env belongs to as updated so the agent's
+// workload is reassembled. An env targeting an environment belongs to no agent:
+// an environment is an organization's, and there is nothing to touch.
+func touchEnvAgent(ctx context.Context, tx pgx.Tx, env Env) error {
+	if env.EnvironmentID != nil {
+		return nil
+	}
+	agentID, err := resolveAgentID(ctx, tx, env.AgentID, env.McpID, env.HookID)
+	if err != nil {
+		return err
+	}
+	return touchAgentUpdatedAt(ctx, tx, agentID)
+}
+
+// organizationIDForEnvTarget reports the organization an env target belongs to.
+// An agent and an environment hold one directly; an mcp and a hook reach it
+// through their agent.
+func organizationIDForEnvTarget(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
+	if environmentID != nil {
+		return organizationIDForEnvironment(ctx, tx, *environmentID)
+	}
+	resolvedAgentID, err := resolveAgentID(ctx, tx, agentID, mcpID, hookID)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+	return organizationIDForAgent(ctx, tx, resolvedAgentID)
+}
+
+func organizationIDForAgent(ctx context.Context, tx pgx.Tx, agentID uuid.UUID) (uuid.UUID, error) {
+	var organizationID uuid.UUID
+	row := tx.QueryRow(ctx, "SELECT organization_id FROM agents WHERE id = $1", agentID)
+	if err := row.Scan(&organizationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.UUID{}, NotFound("agent")
+		}
+		return uuid.UUID{}, err
+	}
+	return organizationID, nil
+}
+
+func organizationIDForEnvironment(ctx context.Context, tx pgx.Tx, environmentID uuid.UUID) (uuid.UUID, error) {
+	var organizationID uuid.UUID
+	row := tx.QueryRow(ctx, "SELECT organization_id FROM environments WHERE id = $1", environmentID)
+	if err := row.Scan(&organizationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.UUID{}, NotFound("environment")
+		}
+		return uuid.UUID{}, err
+	}
+	return organizationID, nil
 }
 
 func agentIDForMcp(ctx context.Context, tx pgx.Tx, mcpID uuid.UUID) (uuid.UUID, error) {

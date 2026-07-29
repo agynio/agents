@@ -115,6 +115,16 @@ func (s *Server) publishAgentUpdatedForVolume(ctx context.Context, volumeID uuid
 	}
 }
 
+// publishAgentUpdatedForEnv notifies the agent whose configuration the env is
+// part of. An env on an environment is part of no agent's configuration — an
+// environment belongs to an organization — and there is nothing to notify.
+func (s *Server) publishAgentUpdatedForEnv(ctx context.Context, env store.Env) {
+	if env.EnvironmentID != nil {
+		return
+	}
+	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+}
+
 func (s *Server) publishAgentUpdatedForTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID) {
 	resolvedID, err := s.resolveAgentID(ctx, agentID, mcpID, hookID)
 	if err != nil {

@@ -197,14 +197,16 @@ type Hook struct {
 }
 
 type Env struct {
-	Meta        EntityMeta
-	Name        string
-	Description string
-	AgentID     *uuid.UUID
-	McpID       *uuid.UUID
-	HookID      *uuid.UUID
-	Value       *string
-	SecretID    *uuid.UUID
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Name           string
+	Description    string
+	AgentID        *uuid.UUID
+	McpID          *uuid.UUID
+	HookID         *uuid.UUID
+	EnvironmentID  *uuid.UUID
+	Value          *string
+	SecretID       *uuid.UUID
 }
 
 type Environment struct {
@@ -352,13 +354,14 @@ type HookUpdate struct {
 }
 
 type EnvInput struct {
-	Name        string
-	Description string
-	AgentID     *uuid.UUID
-	McpID       *uuid.UUID
-	HookID      *uuid.UUID
-	Value       *string
-	SecretID    *uuid.UUID
+	Name          string
+	Description   string
+	AgentID       *uuid.UUID
+	McpID         *uuid.UUID
+	HookID        *uuid.UUID
+	EnvironmentID *uuid.UUID
+	Value         *string
+	SecretID      *uuid.UUID
 }
 
 type EnvUpdate struct {
@@ -441,10 +444,16 @@ type HookFilter struct {
 	AgentID *uuid.UUID
 }
 
+// EnvFilter narrows a list of envs. OrganizationID is what keeps a list inside
+// one tenant; it is a pointer because the Agents Orchestrator lists an
+// environment's envs over the mesh without naming an organization, and the
+// remaining fields narrow within whatever scope results.
 type EnvFilter struct {
-	AgentID *uuid.UUID
-	McpID   *uuid.UUID
-	HookID  *uuid.UUID
+	OrganizationID *uuid.UUID
+	AgentID        *uuid.UUID
+	McpID          *uuid.UUID
+	HookID         *uuid.UUID
+	EnvironmentID  *uuid.UUID
 }
 
 type InitScriptFilter struct {

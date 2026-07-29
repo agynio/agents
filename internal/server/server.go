@@ -1256,6 +1256,12 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		input.HookID = &id
+	case *agentsv1.CreateEnvRequest_EnvironmentId:
+		id, err := parseUUID(target.EnvironmentId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		input.EnvironmentID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
@@ -1278,7 +1284,7 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForEnv(ctx, env)
 	return &agentsv1.CreateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1331,7 +1337,7 @@ func (s *Server) UpdateEnv(ctx context.Context, req *agentsv1.UpdateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForEnv(ctx, env)
 	return &agentsv1.UpdateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1347,7 +1353,7 @@ func (s *Server) DeleteEnv(ctx context.Context, req *agentsv1.DeleteEnvRequest) 
 	if err := s.store.DeleteEnv(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForEnv(ctx, env)
 	return &agentsv1.DeleteEnvResponse{}, nil
 }
 

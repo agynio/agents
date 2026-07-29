@@ -198,6 +198,8 @@ func toProtoEnv(env store.Env) *agentsv1.Env {
 		protoEnv.Target = &agentsv1.Env_McpId{McpId: env.McpID.String()}
 	} else if env.HookID != nil {
 		protoEnv.Target = &agentsv1.Env_HookId{HookId: env.HookID.String()}
+	} else if env.EnvironmentID != nil {
+		protoEnv.Target = &agentsv1.Env_EnvironmentId{EnvironmentId: env.EnvironmentID.String()}
 	} else {
 		panic("env missing target")
 	}
