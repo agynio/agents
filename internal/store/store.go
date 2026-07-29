@@ -17,7 +17,7 @@ const (
 	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
-	imagePullSecretAttachmentColumns = `id, image_pull_secret_id, agent_id, mcp_id, hook_id, created_at, updated_at`
+	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id, created_at, updated_at`
 	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, created_at, updated_at`
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
 	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
@@ -159,12 +159,15 @@ func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, erro
 	var agentID pgtype.UUID
 	var mcpID pgtype.UUID
 	var hookID pgtype.UUID
+	var environmentID pgtype.UUID
 	if err := row.Scan(
 		&attachment.Meta.ID,
+		&attachment.OrganizationID,
 		&attachment.ImagePullSecretID,
 		&agentID,
 		&mcpID,
 		&hookID,
+		&environmentID,
 		&attachment.Meta.CreatedAt,
 		&attachment.Meta.UpdatedAt,
 	); err != nil {
@@ -173,6 +176,7 @@ func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, erro
 	attachment.AgentID = uuidPtrFromPg(agentID)
 	attachment.McpID = uuidPtrFromPg(mcpID)
 	attachment.HookID = uuidPtrFromPg(hookID)
+	attachment.EnvironmentID = uuidPtrFromPg(environmentID)
 	return attachment, nil
 }
 
@@ -813,14 +817,22 @@ func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachme
 
 func (s *Store) CreateImagePullSecretAttachment(ctx context.Context, input ImagePullSecretAttachmentInput) (ImagePullSecretAttachment, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (ImagePullSecretAttachment, error) {
+		// A caller names only the target, so the organization the row is scoped
+		// by is derived from it, in the same transaction that writes the row.
+		organizationID, err := organizationIDForTarget(ctx, tx, input.AgentID, input.McpID, input.HookID, input.EnvironmentID)
+		if err != nil {
+			return ImagePullSecretAttachment{}, err
+		}
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO image_pull_secret_attachments (image_pull_secret_id, agent_id, mcp_id, hook_id)
-		 VALUES ($1, $2, $3, $4)
+			fmt.Sprintf(`INSERT INTO image_pull_secret_attachments (organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING %s`, imagePullSecretAttachmentColumns),
+			organizationID,
 			input.ImagePullSecretID,
 			input.AgentID,
 			input.McpID,
 			input.HookID,
+			input.EnvironmentID,
 		)
 		attachment, err := scanImagePullSecretAttachment(row)
 		if err != nil {
@@ -835,11 +847,7 @@ func (s *Store) CreateImagePullSecretAttachment(ctx context.Context, input Image
 			}
 			return ImagePullSecretAttachment{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID)
-		if err != nil {
-			return ImagePullSecretAttachment{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID); err != nil {
 			return ImagePullSecretAttachment{}, err
 		}
 		return attachment, nil
@@ -874,11 +882,7 @@ func (s *Store) DeleteImagePullSecretAttachment(ctx context.Context, id uuid.UUI
 			}
 			return struct{}{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID)
-		if err != nil {
-			return struct{}{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
@@ -889,6 +893,9 @@ func (s *Store) DeleteImagePullSecretAttachment(ctx context.Context, id uuid.UUI
 func (s *Store) ListImagePullSecretAttachments(ctx context.Context, filter ImagePullSecretAttachmentFilter, pageSize int32, cursor *PageCursor) (ImagePullSecretAttachmentListResult, error) {
 	clauses := []string{}
 	args := []any{}
+	if filter.OrganizationID != nil {
+		clauses, args = appendClause(clauses, args, "organization_id = $%d", *filter.OrganizationID)
+	}
 	if filter.ImagePullSecretID != nil {
 		clauses, args = appendClause(clauses, args, "image_pull_secret_id = $%d", *filter.ImagePullSecretID)
 	}
@@ -900,6 +907,9 @@ func (s *Store) ListImagePullSecretAttachments(ctx context.Context, filter Image
 	}
 	if filter.HookID != nil {
 		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
+	}
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
 	}
 
 	attachments, nextCursor, err := listEntities(ctx, s.pool,
@@ -1307,7 +1317,7 @@ func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (Env, error) {
 		// A caller names only the target, so the organization the row is scoped
 		// by is derived from it, in the same transaction that writes the row.
-		organizationID, err := organizationIDForEnvTarget(ctx, tx, input.AgentID, input.McpID, input.HookID, input.EnvironmentID)
+		organizationID, err := organizationIDForTarget(ctx, tx, input.AgentID, input.McpID, input.HookID, input.EnvironmentID)
 		if err != nil {
 			return Env{}, err
 		}
@@ -1333,7 +1343,7 @@ func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 			}
 			return Env{}, err
 		}
-		if err := touchEnvAgent(ctx, tx, env); err != nil {
+		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID); err != nil {
 			return Env{}, err
 		}
 		return env, nil
@@ -1385,7 +1395,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, update EnvUpdate) (
 			}
 			return Env{}, err
 		}
-		if err := touchEnvAgent(ctx, tx, env); err != nil {
+		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID); err != nil {
 			return Env{}, err
 		}
 		return env, nil
@@ -1405,7 +1415,7 @@ func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) error {
 			}
 			return struct{}{}, err
 		}
-		if err := touchEnvAgent(ctx, tx, env); err != nil {
+		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil

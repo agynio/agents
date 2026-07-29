@@ -817,6 +817,12 @@ func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agent
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		input.HookID = &id
+	case *agentsv1.CreateImagePullSecretAttachmentRequest_EnvironmentId:
+		id, err := parseUUID(target.EnvironmentId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		input.EnvironmentID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
@@ -825,7 +831,7 @@ func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agent
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID)
 	return &agentsv1.CreateImagePullSecretAttachmentResponse{ImagePullSecretAttachment: toProtoImagePullSecretAttachment(attachment)}, nil
 }
 
@@ -853,7 +859,7 @@ func (s *Server) DeleteImagePullSecretAttachment(ctx context.Context, req *agent
 	if err := s.store.DeleteImagePullSecretAttachment(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID)
 	return &agentsv1.DeleteImagePullSecretAttachmentResponse{}, nil
 }
 
@@ -862,7 +868,6 @@ func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agents
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-
 	hasFilter := false
 	filter := store.ImagePullSecretAttachmentFilter{}
 	if req.GetImagePullSecretId() != "" {
@@ -896,6 +901,14 @@ func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agents
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		filter.HookID = &hookID
+	}
+	if req.GetEnvironmentId() != "" {
+		hasFilter = true
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		filter.EnvironmentID = &environmentID
 	}
 	if !hasFilter {
 		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
@@ -1284,7 +1297,7 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForEnv(ctx, env)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
 	return &agentsv1.CreateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1337,7 +1350,7 @@ func (s *Server) UpdateEnv(ctx context.Context, req *agentsv1.UpdateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForEnv(ctx, env)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
 	return &agentsv1.UpdateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1353,7 +1366,7 @@ func (s *Server) DeleteEnv(ctx context.Context, req *agentsv1.DeleteEnvRequest) 
 	if err := s.store.DeleteEnv(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForEnv(ctx, env)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
 	return &agentsv1.DeleteEnvResponse{}, nil
 }
 

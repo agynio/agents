@@ -46,24 +46,24 @@ func resolveAgentID(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *u
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
 }
 
-// touchEnvAgent marks the agent an env belongs to as updated so the agent's
-// workload is reassembled. An env targeting an environment belongs to no agent:
+// touchTargetAgent marks the agent a row belongs to as updated so the agent's
+// workload is reassembled. A row targeting an environment belongs to no agent:
 // an environment is an organization's, and there is nothing to touch.
-func touchEnvAgent(ctx context.Context, tx pgx.Tx, env Env) error {
-	if env.EnvironmentID != nil {
+func touchTargetAgent(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) error {
+	if environmentID != nil {
 		return nil
 	}
-	agentID, err := resolveAgentID(ctx, tx, env.AgentID, env.McpID, env.HookID)
+	resolvedAgentID, err := resolveAgentID(ctx, tx, agentID, mcpID, hookID)
 	if err != nil {
 		return err
 	}
-	return touchAgentUpdatedAt(ctx, tx, agentID)
+	return touchAgentUpdatedAt(ctx, tx, resolvedAgentID)
 }
 
-// organizationIDForEnvTarget reports the organization an env target belongs to.
-// An agent and an environment hold one directly; an mcp and a hook reach it
+// organizationIDForTarget reports the organization a target belongs to. An
+// agent and an environment hold one directly; an mcp and a hook reach it
 // through their agent.
-func organizationIDForEnvTarget(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
+func organizationIDForTarget(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
 	if environmentID != nil {
 		return organizationIDForEnvironment(ctx, tx, *environmentID)
 	}

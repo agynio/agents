@@ -115,14 +115,14 @@ func (s *Server) publishAgentUpdatedForVolume(ctx context.Context, volumeID uuid
 	}
 }
 
-// publishAgentUpdatedForEnv notifies the agent whose configuration the env is
-// part of. An env on an environment is part of no agent's configuration — an
-// environment belongs to an organization — and there is nothing to notify.
-func (s *Server) publishAgentUpdatedForEnv(ctx context.Context, env store.Env) {
-	if env.EnvironmentID != nil {
+// publishAgentUpdatedForConfigTarget notifies the agent whose configuration the
+// row is part of. A row on an environment is part of no agent's configuration —
+// an environment belongs to an organization — and there is nothing to notify.
+func (s *Server) publishAgentUpdatedForConfigTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) {
+	if environmentID != nil {
 		return
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForTarget(ctx, agentID, mcpID, hookID)
 }
 
 func (s *Server) publishAgentUpdatedForTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID) {

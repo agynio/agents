@@ -107,6 +107,10 @@ func toProtoImagePullSecretAttachment(attachment store.ImagePullSecretAttachment
 		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_HookId{HookId: attachment.HookID.String()}
 		return protoAttachment
 	}
+	if attachment.EnvironmentID != nil {
+		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_EnvironmentId{EnvironmentId: attachment.EnvironmentID.String()}
+		return protoAttachment
+	}
 	panic("image pull secret attachment missing target")
 }
 
