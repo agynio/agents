@@ -44,6 +44,11 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 	if agent.IdleTimeout != nil {
 		protoAgent.IdleTimeout = agent.IdleTimeout
 	}
+	// Empty on agents created before environments existed, which run from the
+	// deprecated inline image and resources above.
+	if agent.EnvironmentID != nil {
+		protoAgent.EnvironmentId = agent.EnvironmentID.String()
+	}
 	return protoAgent
 }
 

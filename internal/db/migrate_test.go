@@ -11,11 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The migrations under test. Each derives an organization for every row already
-// in its table from the target that row carries, so reads can be scoped by it.
+// The migrations under test. The first two derive an organization for every row
+// already in their table from the target that row carries, so reads can be
+// scoped by it. The third gives agents the environment reference that supersedes
+// the image and compute they carried inline.
 const (
 	envOrganizationScopeMigration                       = "0016_env_organization_scope.sql"
 	imagePullSecretAttachmentOrganizationScopeMigration = "0017_image_pull_secret_attachment_organization_scope.sql"
+	agentEnvironmentMigration                           = "0018_agent_environment.sql"
 )
 
 const (
@@ -252,5 +255,61 @@ func TestImagePullSecretAttachmentOrganizationBackfillStopsOnAnAttachmentWithNoO
 	}
 	if columns != 0 {
 		t.Fatal("expected the migration to roll back and leave image_pull_secret_attachments untouched")
+	}
+}
+
+// The reference is composite, the way sandboxes reference environments, so the
+// database itself refuses an agent pointing at another organization's
+// environment. The server checks it first and answers InvalidArgument; this is
+// the floor underneath that check.
+func TestAgentEnvironmentForeignKeyRefusesAnotherOrganizationsEnvironment(t *testing.T) {
+	ctx := context.Background()
+	pool := migrationTestPool(ctx, t)
+	applyMigrationsBefore(ctx, t, pool, agentEnvironmentMigration)
+	seedTargetsAcrossOrganizations(ctx, t, pool)
+
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	execAll(ctx, t, pool, []string{
+		`INSERT INTO environments (id, organization_id, name, flavor_id, image) VALUES
+			('eeeeeeee-0000-0000-0000-000000000001', '` + organizationOne + `', 'one', uuid_generate_v4(), 'env:1')`,
+	})
+
+	// The agent is organizationTwo's and the environment organizationOne's.
+	if _, err := pool.Exec(ctx,
+		`UPDATE agents SET environment_id = 'eeeeeeee-0000-0000-0000-000000000001' WHERE id = 'aaaaaaaa-0000-0000-0000-000000000002'`,
+	); err == nil {
+		t.Fatal("expected an agent to be refused an environment from another organization")
+	}
+
+	// The same environment is accepted by the agent that does share its
+	// organization, so what was refused is the mismatch and not the reference.
+	if _, err := pool.Exec(ctx,
+		`UPDATE agents SET environment_id = 'eeeeeeee-0000-0000-0000-000000000001' WHERE id = 'aaaaaaaa-0000-0000-0000-000000000001'`,
+	); err != nil {
+		t.Fatalf("expected an environment from the agent's own organization to be accepted: %v", err)
+	}
+}
+
+// Every agent written before environments existed keeps running from the image
+// and compute it carries inline, so the column has to admit no reference at all.
+func TestAgentEnvironmentIsNullableForAgentsThatPredateEnvironments(t *testing.T) {
+	ctx := context.Background()
+	pool := migrationTestPool(ctx, t)
+	applyMigrationsBefore(ctx, t, pool, agentEnvironmentMigration)
+	seedTargetsAcrossOrganizations(ctx, t, pool)
+
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	var withoutEnvironment int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE environment_id IS NULL`).Scan(&withoutEnvironment); err != nil {
+		t.Fatalf("read agents: %v", err)
+	}
+	if withoutEnvironment != 2 {
+		t.Fatalf("expected both seeded agents to carry no environment, got %d", withoutEnvironment)
 	}
 }

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, created_at, updated_at`
+	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id, created_at, updated_at`
@@ -80,6 +80,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 	var agent Agent
 	var idleTimeout pgtype.Text
 	var capabilities []byte
+	var environmentID pgtype.UUID
 	if err := row.Scan(
 		&agent.Meta.ID,
 		&agent.OrganizationID,
@@ -98,12 +99,14 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.Resources.RequestsMemory,
 		&agent.Resources.LimitsCPU,
 		&agent.Resources.LimitsMemory,
+		&environmentID,
 		&agent.Meta.CreatedAt,
 		&agent.Meta.UpdatedAt,
 	); err != nil {
 		return Agent{}, err
 	}
 	agent.IdleTimeout = stringPtrFromPg(idleTimeout)
+	agent.EnvironmentID = uuidPtrFromPg(environmentID)
 	decodedCapabilities, err := decodeCapabilities(capabilities)
 	if err != nil {
 		return Agent{}, err
@@ -373,8 +376,8 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		return Agent{}, err
 	}
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING %s`, agentColumns),
 		organizationID,
 		input.Name,
@@ -392,6 +395,7 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		input.Resources.RequestsMemory,
 		input.Resources.LimitsCPU,
 		input.Resources.LimitsMemory,
+		input.EnvironmentID,
 	)
 	agent, err := scanAgent(row)
 	if err != nil {
@@ -416,6 +420,9 @@ func (s *Store) GetAgent(ctx context.Context, id uuid.UUID) (Agent, error) {
 }
 
 func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdate) (Agent, error) {
+	if update.EnvironmentID != nil && update.ClearEnvironmentID {
+		return Agent{}, fmt.Errorf("agent update cannot set and clear environment_id")
+	}
 	builder := updateBuilder{}
 	if update.Name != nil {
 		builder.add("name", *update.Name)
@@ -459,6 +466,12 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 		builder.add("resources_requests_memory", update.Resources.RequestsMemory)
 		builder.add("resources_limits_cpu", update.Resources.LimitsCPU)
 		builder.add("resources_limits_memory", update.Resources.LimitsMemory)
+	}
+	if update.EnvironmentID != nil {
+		builder.add("environment_id", *update.EnvironmentID)
+	}
+	if update.ClearEnvironmentID {
+		builder.addNull("environment_id")
 	}
 
 	if builder.empty() {

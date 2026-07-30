@@ -110,6 +110,29 @@ func (s *Server) removeAgentNickname(ctx context.Context, agentID uuid.UUID, org
 	return err
 }
 
+// environmentInOrganization resolves an environment_id and refuses one naming an
+// environment in another organization. The composite foreign key on agents
+// refuses that too, but the violation would reach the caller as an opaque
+// internal error rather than naming the field that was wrong.
+func (s *Server) environmentInOrganization(ctx context.Context, value string, organizationID uuid.UUID) (uuid.UUID, error) {
+	environmentID, err := parseUUID(value)
+	if err != nil {
+		return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+	}
+	environment, err := s.store.GetEnvironment(ctx, environmentID)
+	if err != nil {
+		var notFound *store.NotFoundError
+		if errors.As(err, &notFound) {
+			return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		return uuid.UUID{}, toStatusError(err)
+	}
+	if environment.OrganizationID != organizationID {
+		return uuid.UUID{}, status.Error(codes.InvalidArgument, "environment_id: environment belongs to another organization")
+	}
+	return environmentID, nil
+}
+
 func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentRequest) (*agentsv1.CreateAgentResponse, error) {
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
@@ -141,6 +164,16 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err := validateDurationString(idleTimeout); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "idle_timeout: %v", err)
 	}
+	// Optional: an agent may name no environment and run from the deprecated
+	// inline image and resources instead.
+	var environmentID *uuid.UUID
+	if req.GetEnvironmentId() != "" {
+		resolved, err := s.environmentInOrganization(ctx, req.GetEnvironmentId(), organizationID)
+		if err != nil {
+			return nil, err
+		}
+		environmentID = &resolved
+	}
 	nickname := req.GetNickname()
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
@@ -156,6 +189,7 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		Capabilities:  append([]string(nil), req.GetCapabilities()...),
 		Availability:  availability,
 		Resources:     resources,
+		EnvironmentID: environmentID,
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -256,7 +290,8 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	// list replaces existing capabilities.
 	capabilitiesProvided := req.Capabilities != nil
 	availabilityProvided := req.Availability != nil
-	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided {
+	environmentProvided := req.EnvironmentId != nil
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -267,7 +302,9 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	var previousAgent store.Agent
 	var nicknameValue string
 	var nicknameUpdateNeeded bool
-	if nicknameProvided || availabilityProvided {
+	// An environment is checked against the agent's organization, which only the
+	// stored agent names.
+	if nicknameProvided || availabilityProvided || environmentProvided {
 		previousAgent, err = s.store.GetAgent(ctx, id)
 		if err != nil {
 			return nil, toStatusError(err)
@@ -335,6 +372,19 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if req.Resources != nil {
 		resources := toStoreComputeResources(req.GetResources())
 		update.Resources = &resources
+	}
+	if environmentProvided {
+		// An empty environment_id clears the reference rather than naming an
+		// environment, leaving the agent as one created before they existed.
+		if req.GetEnvironmentId() == "" {
+			update.ClearEnvironmentID = true
+		} else {
+			environmentID, err := s.environmentInOrganization(ctx, req.GetEnvironmentId(), previousAgent.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+			update.EnvironmentID = &environmentID
+		}
 	}
 
 	agent, err := s.store.UpdateAgent(ctx, id, update)

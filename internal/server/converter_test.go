@@ -375,6 +375,40 @@ func TestToProtoAgentInstanceBuildsHandle(t *testing.T) {
 	}
 }
 
+func TestToProtoAgentCarriesTheEnvironmentReference(t *testing.T) {
+	environmentID := uuid.New()
+	agent := store.Agent{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		OrganizationID: uuid.New(),
+		Name:           "alpha",
+		Availability:   store.AgentAvailabilityInternal,
+		EnvironmentID:  &environmentID,
+	}
+
+	protoAgent := toProtoAgent(agent)
+
+	if protoAgent.GetEnvironmentId() != environmentID.String() {
+		t.Fatalf("expected environment %s, got %q", environmentID, protoAgent.GetEnvironmentId())
+	}
+}
+
+// An agent created before environments existed has none, and the field stays
+// empty rather than reporting the zero UUID as a reference.
+func TestToProtoAgentLeavesTheEnvironmentEmptyWhenUnset(t *testing.T) {
+	agent := store.Agent{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		OrganizationID: uuid.New(),
+		Name:           "alpha",
+		Availability:   store.AgentAvailabilityInternal,
+	}
+
+	protoAgent := toProtoAgent(agent)
+
+	if protoAgent.GetEnvironmentId() != "" {
+		t.Fatalf("expected no environment, got %q", protoAgent.GetEnvironmentId())
+	}
+}
+
 func TestToProtoImagePullSecretAttachmentCarriesTheEnvironmentTarget(t *testing.T) {
 	environmentID := uuid.New()
 	attachment := store.ImagePullSecretAttachment{

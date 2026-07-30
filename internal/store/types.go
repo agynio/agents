@@ -34,6 +34,10 @@ type Agent struct {
 	Capabilities   []string
 	Availability   AgentAvailability
 	Resources      ComputeResources
+	// The environment supplying this agent's image and compute. Null on agents
+	// written before environments existed, which still carry Image and
+	// Resources of their own.
+	EnvironmentID *uuid.UUID
 }
 
 type AgentAvailability string
@@ -262,6 +266,7 @@ type AgentInput struct {
 	Capabilities  []string
 	Availability  AgentAvailability
 	Resources     ComputeResources
+	EnvironmentID *uuid.UUID
 }
 
 type AgentUpdate struct {
@@ -277,6 +282,10 @@ type AgentUpdate struct {
 	Capabilities  *[]string
 	Availability  *AgentAvailability
 	Resources     *ComputeResources
+	// EnvironmentID sets the reference and ClearEnvironmentID removes it; an
+	// agent may have none, so the two cases are distinct.
+	EnvironmentID      *uuid.UUID
+	ClearEnvironmentID bool
 }
 
 type VolumeInput struct {
