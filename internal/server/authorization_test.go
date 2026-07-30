@@ -105,8 +105,38 @@ func TestAddSandboxAuthorizationWritesOrgAndOwner(t *testing.T) {
 	assertTuples(t, request.GetWrites(), []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
+		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
 	})
 	assertTuples(t, request.GetDeletes(), nil)
+}
+
+// The workload's access comes from this tuple, not from its identity type, so
+// assert the literal user/relation/object rather than re-deriving it.
+func TestSandboxIdentityBecomesOrganizationMember(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	sandboxID := uuid.New()
+	organizationID := uuid.New()
+
+	if err := server.addSandboxAuthorization(context.Background(), sandboxID, organizationID, uuid.New()); err != nil {
+		t.Fatalf("add sandbox authorization: %v", err)
+	}
+
+	var found *authorizationv1.TupleKey
+	for _, tuple := range singleWriteRequest(t, authz).GetWrites() {
+		if tuple.GetRelation() == "member" {
+			found = tuple
+		}
+	}
+	if found == nil {
+		t.Fatal("expected the sandbox workload to be written as an organization member")
+	}
+	if found.GetUser() != "identity:"+sandboxID.String() {
+		t.Fatalf("expected the sandbox's own identity, got %q", found.GetUser())
+	}
+	if found.GetObject() != "organization:"+organizationID.String() {
+		t.Fatalf("expected membership of the sandbox organization, got %q", found.GetObject())
+	}
 }
 
 func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
@@ -125,6 +155,7 @@ func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
 	assertTuples(t, request.GetDeletes(), []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
+		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
 	})
 }
 
