@@ -297,12 +297,18 @@ func TestAgentsServiceE2E(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, secretID, updatedEnvResp.Env.GetSecretId())
 
-		envsByAgent := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{AgentId: agentID})
+		envsByAgent := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{OrganizationId: testOrganizationID, AgentId: agentID})
 		require.True(t, hasID(envsByAgent, envID))
-		envsByMcp := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{McpId: mcpID})
+		envsByMcp := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{OrganizationId: testOrganizationID, McpId: mcpID})
 		require.True(t, hasID(envsByMcp, envMcpID))
-		envsByHook := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{HookId: hookID})
+		envsByHook := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{OrganizationId: testOrganizationID, HookId: hookID})
 		require.True(t, hasID(envsByHook, envHookID))
+
+		// The organization alone is enough; the target ids only narrow it.
+		envsByOrganization := listEnvs(ctx, t, client, &agentsv1.ListEnvsRequest{OrganizationId: testOrganizationID})
+		require.True(t, hasID(envsByOrganization, envID))
+		require.True(t, hasID(envsByOrganization, envMcpID))
+		require.True(t, hasID(envsByOrganization, envHookID))
 
 		_, err = client.DeleteEnv(ctx, &agentsv1.DeleteEnvRequest{Id: envHookID})
 		require.NoError(t, err)
@@ -570,10 +576,16 @@ func TestAgentsServiceE2E(t *testing.T) {
 		require.Equal(t, imagePullSecretID, getHookAttachmentResp.ImagePullSecretAttachment.ImagePullSecretId)
 		require.Equal(t, hookID, getHookAttachmentResp.ImagePullSecretAttachment.GetHookId())
 
-		attachments := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{ImagePullSecretId: imagePullSecretID})
+		attachments := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{OrganizationId: testOrganizationID, ImagePullSecretId: imagePullSecretID})
 		require.True(t, hasID(attachments, attachmentID))
 		require.True(t, hasID(attachments, mcpAttachmentID))
 		require.True(t, hasID(attachments, hookAttachmentID))
+
+		// The organization alone is enough; the target ids only narrow it.
+		attachmentsByOrganization := listImagePullSecretAttachments(ctx, t, client, &agentsv1.ListImagePullSecretAttachmentsRequest{OrganizationId: testOrganizationID})
+		require.True(t, hasID(attachmentsByOrganization, attachmentID))
+		require.True(t, hasID(attachmentsByOrganization, mcpAttachmentID))
+		require.True(t, hasID(attachmentsByOrganization, hookAttachmentID))
 
 		_, err = client.DeleteImagePullSecretAttachment(ctx, &agentsv1.DeleteImagePullSecretAttachmentRequest{Id: hookAttachmentID})
 		require.NoError(t, err)

@@ -374,3 +374,37 @@ func TestToProtoAgentInstanceBuildsHandle(t *testing.T) {
 		t.Fatalf("unexpected pause reason %q", protoInstance.GetPauseReason())
 	}
 }
+
+func TestToProtoImagePullSecretAttachmentCarriesTheEnvironmentTarget(t *testing.T) {
+	environmentID := uuid.New()
+	attachment := store.ImagePullSecretAttachment{
+		Meta:              store.EntityMeta{ID: uuid.New()},
+		OrganizationID:    uuid.New(),
+		ImagePullSecretID: uuid.New(),
+		EnvironmentID:     &environmentID,
+	}
+
+	protoAttachment := toProtoImagePullSecretAttachment(attachment)
+
+	if protoAttachment.GetEnvironmentId() != environmentID.String() {
+		t.Fatalf("expected environment target %s, got %q", environmentID, protoAttachment.GetEnvironmentId())
+	}
+}
+
+func TestToProtoEnvCarriesTheEnvironmentTarget(t *testing.T) {
+	environmentID := uuid.New()
+	value := "value"
+	env := store.Env{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		OrganizationID: uuid.New(),
+		Name:           "TOKEN",
+		EnvironmentID:  &environmentID,
+		Value:          &value,
+	}
+
+	protoEnv := toProtoEnv(env)
+
+	if protoEnv.GetEnvironmentId() != environmentID.String() {
+		t.Fatalf("expected environment target %s, got %q", environmentID, protoEnv.GetEnvironmentId())
+	}
+}

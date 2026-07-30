@@ -547,14 +547,9 @@ func (s *Server) ListMyAgentRoles(ctx context.Context, req *agentsv1.ListMyAgent
 }
 
 func (s *Server) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest) (*agentsv1.ListAgentsResponse, error) {
-	var organizationID *uuid.UUID
-	organizationValue := req.GetOrganizationId()
-	if organizationValue != "" {
-		parsedOrganizationID, err := parseUUID(organizationValue)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-		}
-		organizationID = &parsedOrganizationID
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
+	if err != nil {
+		return nil, err
 	}
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
@@ -660,6 +655,9 @@ func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesReque
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if err := s.requireOrganizationListAccess(ctx, organizationID); err != nil {
+		return nil, err
 	}
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
@@ -817,6 +815,12 @@ func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agent
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		input.HookID = &id
+	case *agentsv1.CreateImagePullSecretAttachmentRequest_EnvironmentId:
+		id, err := parseUUID(target.EnvironmentId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		input.EnvironmentID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
@@ -825,7 +829,7 @@ func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agent
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID)
 	return &agentsv1.CreateImagePullSecretAttachmentResponse{ImagePullSecretAttachment: toProtoImagePullSecretAttachment(attachment)}, nil
 }
 
@@ -853,7 +857,7 @@ func (s *Server) DeleteImagePullSecretAttachment(ctx context.Context, req *agent
 	if err := s.store.DeleteImagePullSecretAttachment(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID)
 	return &agentsv1.DeleteImagePullSecretAttachmentResponse{}, nil
 }
 
@@ -862,43 +866,9 @@ func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agents
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-
-	hasFilter := false
-	filter := store.ImagePullSecretAttachmentFilter{}
-	if req.GetImagePullSecretId() != "" {
-		hasFilter = true
-		imagePullSecretID, err := parseUUID(req.GetImagePullSecretId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "image_pull_secret_id: %v", err)
-		}
-		filter.ImagePullSecretID = &imagePullSecretID
-	}
-	if req.GetAgentId() != "" {
-		hasFilter = true
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
-	}
-	if req.GetMcpId() != "" {
-		hasFilter = true
-		mcpID, err := parseUUID(req.GetMcpId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
-		}
-		filter.McpID = &mcpID
-	}
-	if req.GetHookId() != "" {
-		hasFilter = true
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
-	}
-	if !hasFilter {
-		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
+	filter, err := s.imagePullSecretAttachmentListFilter(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := s.store.ListImagePullSecretAttachments(ctx, filter, req.GetPageSize(), cursor)
@@ -907,6 +877,62 @@ func (s *Server) ListImagePullSecretAttachments(ctx context.Context, req *agents
 	}
 	attachments, nextToken := mapListResult(result.ImagePullSecretAttachments, result.NextCursor, toProtoImagePullSecretAttachment)
 	return &agentsv1.ListImagePullSecretAttachmentsResponse{ImagePullSecretAttachments: attachments, NextPageToken: nextToken}, nil
+}
+
+// imagePullSecretAttachmentListFilter authorizes the read and narrows it.
+//
+// The Agents Orchestrator lists an environment's image pull secret attachments
+// while assembling a sandbox workload and carries no identity, by design — it
+// holds no OpenFGA tuples and reaches this RPC over the mesh rather than the
+// Gateway. A caller that does present an identity is a user request: it names
+// the organization it is reading and must be a member of it. The target ids
+// only narrow the result further; an attachment is a reference to a registry
+// credential, and which organization's credentials are being read is settled by
+// the organization, not by them.
+func (s *Server) imagePullSecretAttachmentListFilter(ctx context.Context, req *agentsv1.ListImagePullSecretAttachmentsRequest) (store.ImagePullSecretAttachmentFilter, error) {
+	filter := store.ImagePullSecretAttachmentFilter{}
+	if req.GetImagePullSecretId() != "" {
+		imagePullSecretID, err := parseUUID(req.GetImagePullSecretId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "image_pull_secret_id: %v", err)
+		}
+		filter.ImagePullSecretID = &imagePullSecretID
+	}
+	if req.GetAgentId() != "" {
+		agentID, err := parseUUID(req.GetAgentId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		filter.AgentID = &agentID
+	}
+	if req.GetMcpId() != "" {
+		mcpID, err := parseUUID(req.GetMcpId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		filter.McpID = &mcpID
+	}
+	if req.GetHookId() != "" {
+		hookID, err := parseUUID(req.GetHookId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
+		}
+		filter.HookID = &hookID
+	}
+	if req.GetEnvironmentId() != "" {
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		filter.EnvironmentID = &environmentID
+	}
+
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
+	if err != nil {
+		return store.ImagePullSecretAttachmentFilter{}, err
+	}
+	filter.OrganizationID = organizationID
+	return filter, nil
 }
 
 func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) (*agentsv1.CreateMcpResponse, error) {
@@ -1256,6 +1282,12 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
 		}
 		input.HookID = &id
+	case *agentsv1.CreateEnvRequest_EnvironmentId:
+		id, err := parseUUID(target.EnvironmentId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		input.EnvironmentID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
@@ -1278,7 +1310,7 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
 	return &agentsv1.CreateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1331,7 +1363,7 @@ func (s *Server) UpdateEnv(ctx context.Context, req *agentsv1.UpdateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
 	return &agentsv1.UpdateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1347,7 +1379,7 @@ func (s *Server) DeleteEnv(ctx context.Context, req *agentsv1.DeleteEnvRequest) 
 	if err := s.store.DeleteEnv(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, env.AgentID, env.McpID, env.HookID)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
 	return &agentsv1.DeleteEnvResponse{}, nil
 }
 
@@ -1356,35 +1388,9 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-
-	hasFilter := false
-	filter := store.EnvFilter{}
-	if req.GetAgentId() != "" {
-		hasFilter = true
-		agentID, err := parseUUID(req.GetAgentId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-		}
-		filter.AgentID = &agentID
-	}
-	if req.GetMcpId() != "" {
-		hasFilter = true
-		mcpID, err := parseUUID(req.GetMcpId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
-		}
-		filter.McpID = &mcpID
-	}
-	if req.GetHookId() != "" {
-		hasFilter = true
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
-	}
-	if !hasFilter {
-		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
+	filter, err := s.envListFilter(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := s.store.ListEnvs(ctx, filter, req.GetPageSize(), cursor)
@@ -1393,6 +1399,54 @@ func (s *Server) ListEnvs(ctx context.Context, req *agentsv1.ListEnvsRequest) (*
 	}
 	envs, nextToken := mapListResult(result.Envs, result.NextCursor, toProtoEnv)
 	return &agentsv1.ListEnvsResponse{Envs: envs, NextPageToken: nextToken}, nil
+}
+
+// envListFilter authorizes the read and narrows it.
+//
+// The Agents Orchestrator lists an environment's envs while assembling a
+// sandbox workload and carries no identity, by design — it holds no OpenFGA
+// tuples and reaches this RPC over the mesh rather than the Gateway. A caller
+// that does present an identity is a user request: it names the organization it
+// is reading and must be a member of it. The target ids only narrow the result
+// further; an env is a reference to a secret, and which organization's secrets
+// are being read is settled by the organization, not by them.
+func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsRequest) (store.EnvFilter, error) {
+	filter := store.EnvFilter{}
+	if req.GetAgentId() != "" {
+		agentID, err := parseUUID(req.GetAgentId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		filter.AgentID = &agentID
+	}
+	if req.GetMcpId() != "" {
+		mcpID, err := parseUUID(req.GetMcpId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		filter.McpID = &mcpID
+	}
+	if req.GetHookId() != "" {
+		hookID, err := parseUUID(req.GetHookId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
+		}
+		filter.HookID = &hookID
+	}
+	if req.GetEnvironmentId() != "" {
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		filter.EnvironmentID = &environmentID
+	}
+
+	organizationID, err := s.organizationListScope(ctx, req.GetOrganizationId())
+	if err != nil {
+		return store.EnvFilter{}, err
+	}
+	filter.OrganizationID = organizationID
+	return filter, nil
 }
 
 func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitScriptRequest) (*agentsv1.CreateInitScriptResponse, error) {

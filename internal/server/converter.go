@@ -107,18 +107,31 @@ func toProtoImagePullSecretAttachment(attachment store.ImagePullSecretAttachment
 		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_HookId{HookId: attachment.HookID.String()}
 		return protoAttachment
 	}
+	if attachment.EnvironmentID != nil {
+		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_EnvironmentId{EnvironmentId: attachment.EnvironmentID.String()}
+		return protoAttachment
+	}
 	panic("image pull secret attachment missing target")
 }
 
 func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
-	return &agentsv1.Environment{
+	proto := &agentsv1.Environment{
 		Meta:           toProtoEntityMeta(environment.Meta),
 		OrganizationId: environment.OrganizationID.String(),
 		Name:           environment.Name,
-		FlavorId:       environment.FlavorID.String(),
 		Image:          environment.Image,
+		Flavor:         environment.Flavor,
 		FlavorName:     environment.FlavorName,
 	}
+	if environment.RunnerID != nil {
+		proto.RunnerId = environment.RunnerID.String()
+	}
+	// Deprecated, and null for environments created since placement moved to
+	// runner plus flavor name.
+	if environment.FlavorID != nil {
+		proto.FlavorId = environment.FlavorID.String()
+	}
+	return proto
 }
 
 func toProtoSandbox(sandbox store.Sandbox) *agentsv1.Sandbox {
@@ -189,6 +202,8 @@ func toProtoEnv(env store.Env) *agentsv1.Env {
 		protoEnv.Target = &agentsv1.Env_McpId{McpId: env.McpID.String()}
 	} else if env.HookID != nil {
 		protoEnv.Target = &agentsv1.Env_HookId{HookId: env.HookID.String()}
+	} else if env.EnvironmentID != nil {
+		protoEnv.Target = &agentsv1.Env_EnvironmentId{EnvironmentId: env.EnvironmentID.String()}
 	} else {
 		panic("env missing target")
 	}

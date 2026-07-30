@@ -12,13 +12,14 @@ import (
 
 func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID, input EnvironmentInput) (Environment, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO environments (organization_id, name, flavor_id, image)
-		 VALUES ($1, $2, $3, $4)
+		fmt.Sprintf(`INSERT INTO environments (organization_id, name, image, runner_id, flavor)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING %s`, environmentColumns),
 		organizationID,
 		input.Name,
-		input.FlavorID,
 		input.Image,
+		input.RunnerID,
+		input.Flavor,
 	)
 	environment, err := scanEnvironment(row)
 	if err != nil {
@@ -51,11 +52,14 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 	if update.Name != nil {
 		builder.add("name", *update.Name)
 	}
-	if update.FlavorID != nil {
-		builder.add("flavor_id", *update.FlavorID)
-	}
 	if update.Image != nil {
 		builder.add("image", *update.Image)
+	}
+	if update.RunnerID != nil {
+		builder.add("runner_id", *update.RunnerID)
+	}
+	if update.Flavor != nil {
+		builder.add("flavor", *update.Flavor)
 	}
 	if builder.empty() {
 		return Environment{}, fmt.Errorf("environment update requires at least one field")

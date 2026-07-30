@@ -10,6 +10,7 @@ import (
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestAddAgentAuthorizationWritesAgentOrganizationMembership(t *testing.T) {
@@ -127,6 +128,24 @@ func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
 	})
 }
 
+func TestSandboxReadableWithoutCheck(t *testing.T) {
+	sandboxID := uuid.New()
+	ownerID := uuid.New()
+	sandbox := store.Sandbox{Meta: store.EntityMeta{ID: sandboxID}, OwnerID: ownerID}
+
+	if !sandboxReadableWithoutCheck(sandbox, ownerID) {
+		t.Fatalf("expected the owner to read the sandbox without a check")
+	}
+	// The sandbox workload authenticates as its sandbox and holds no tuple; the
+	// platform services it dials resolve it through this record.
+	if !sandboxReadableWithoutCheck(sandbox, sandboxID) {
+		t.Fatalf("expected the sandbox workload to read its own record")
+	}
+	if sandboxReadableWithoutCheck(sandbox, uuid.New()) {
+		t.Fatalf("expected any other identity to need a check")
+	}
+}
+
 func TestSandboxListFilterDefaultsToCallerOwner(t *testing.T) {
 	authz := &recordingAuthorizationWriter{}
 	server := &Server{authz: authz}
@@ -186,11 +205,16 @@ func TestSandboxListFilterRequiresListPermissionForOtherOwner(t *testing.T) {
 type recordingAuthorizationWriter struct {
 	writes []*authorizationv1.WriteRequest
 	checks []*authorizationv1.CheckRequest
+	// allowedObjects, when set, are the only objects a check is allowed against,
+	// which is how a caller holding tuples somewhere else is expressed. A nil map
+	// allows every check.
+	allowedObjects map[string]bool
 }
 
 func (w *recordingAuthorizationWriter) Check(_ context.Context, req *authorizationv1.CheckRequest, _ ...grpc.CallOption) (*authorizationv1.CheckResponse, error) {
 	w.checks = append(w.checks, req)
-	return &authorizationv1.CheckResponse{Allowed: true}, nil
+	allowed := w.allowedObjects == nil || w.allowedObjects[req.GetTupleKey().GetObject()]
+	return &authorizationv1.CheckResponse{Allowed: allowed}, nil
 }
 
 func (w *recordingAuthorizationWriter) Write(_ context.Context, req *authorizationv1.WriteRequest, _ ...grpc.CallOption) (*authorizationv1.WriteResponse, error) {
@@ -297,4 +321,51 @@ func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T)
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
 	})
+}
+
+func TestOptionalIdentityAbsentForInternalCaller(t *testing.T) {
+	// The orchestrator reaches ListSandboxes over the mesh without an identity;
+	// absence must be reported rather than rejected, so the RPC can serve both
+	// the internal reconcile path and Gateway-fronted user requests.
+	id, ok, err := optionalIdentityUUIDFromContext(context.Background())
+	if err != nil {
+		t.Fatalf("optional identity: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected no identity, got %s", id)
+	}
+}
+
+func TestOptionalIdentityRejectsMalformedValue(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", "not-a-uuid"))
+
+	if _, _, err := optionalIdentityUUIDFromContext(ctx); err == nil {
+		t.Fatal("expected malformed identity to be rejected")
+	}
+}
+
+func TestOptionalIdentityReturnsCallerIdentity(t *testing.T) {
+	identityID := uuid.New()
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", identityID.String()))
+
+	got, ok, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		t.Fatalf("optional identity: %v", err)
+	}
+	if !ok || got != identityID {
+		t.Fatalf("expected identity %s, got %s (ok=%v)", identityID, got, ok)
+	}
+}
+
+func TestGetSandboxServesTheInternalCallerWithoutAnIdentity(t *testing.T) {
+	// The Runners service resolves a sandbox-owned workload's owner through
+	// GetSandbox, and the Orchestrator reads it while reconciling. Neither
+	// carries an identity, and demanding one stalled every sandbox at starting.
+	_, hasIdentity, err := optionalIdentityUUIDFromContext(context.Background())
+	if err != nil {
+		t.Fatalf("optional identity: %v", err)
+	}
+	if hasIdentity {
+		t.Fatal("expected no identity for an internal caller")
+	}
 }

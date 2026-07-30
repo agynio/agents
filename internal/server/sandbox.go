@@ -35,9 +35,9 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	flavorID, err := parseUUID(req.GetFlavorId())
+	runnerID, err := parseUUID(req.GetRunnerId())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "flavor_id: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 	}
 	if err := validateSandboxName(req.GetName()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
@@ -45,10 +45,14 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if req.GetImage() == "" {
 		return nil, status.Error(codes.InvalidArgument, "image is required")
 	}
+	// The flavor name is deliberately not checked against the runner's catalog:
+	// it is resolved at workload start so an environment and the runner
+	// configuration naming its flavor can be applied in either order.
 	environment, err := s.store.CreateEnvironment(ctx, organizationID, store.EnvironmentInput{
 		Name:     req.GetName(),
-		FlavorID: flavorID,
 		Image:    req.GetImage(),
+		RunnerID: &runnerID,
+		Flavor:   req.GetFlavor(),
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -73,7 +77,7 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.FlavorId == nil && req.Image == nil {
+	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	update := store.EnvironmentUpdate{}
@@ -84,12 +88,16 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 		}
 		update.Name = &name
 	}
-	if req.FlavorId != nil {
-		flavorID, err := parseUUID(req.GetFlavorId())
+	if req.RunnerId != nil {
+		runnerID, err := parseUUID(req.GetRunnerId())
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "flavor_id: %v", err)
+			return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 		}
-		update.FlavorID = &flavorID
+		update.RunnerID = &runnerID
+	}
+	if req.Flavor != nil {
+		flavor := req.GetFlavor()
+		update.Flavor = &flavor
 	}
 	if req.Image != nil {
 		image := req.GetImage()
@@ -117,13 +125,16 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvi
 }
 
 func (s *Server) ListEnvironments(ctx context.Context, req *agentsv1.ListEnvironmentsRequest) (*agentsv1.ListEnvironmentsResponse, error) {
-	cursor, err := decodePageCursor(req.GetPageToken())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
-	}
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+	}
+	if err := s.requireOrganizationListAccess(ctx, organizationID); err != nil {
+		return nil, err
+	}
+	cursor, err := decodePageCursor(req.GetPageToken())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 	result, err := s.store.ListEnvironments(ctx, organizationID, store.EnvironmentFilter{}, req.GetPageSize(), cursor)
 	if err != nil {
@@ -195,16 +206,35 @@ func (s *Server) GetSandbox(ctx context.Context, req *agentsv1.GetSandboxRequest
 	if err != nil {
 		return nil, err
 	}
-	identityID, err := identityUUIDFromContext(ctx)
+	// The Runners service resolves a sandbox-owned workload's owner through this
+	// record, and the Orchestrator reads it while reconciling. Both reach the
+	// service over the mesh carrying no identity, by design — they hold no
+	// OpenFGA tuples. A caller that does present an identity is a user request
+	// and is checked as one.
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if sandbox.OwnerID != identityID {
+	if hasIdentity && !sandboxReadableWithoutCheck(sandbox, identityID) {
 		if err := s.requireSandboxRelation(ctx, identityID, sandbox.Meta.ID, "can_list_all"); err != nil {
 			return nil, err
 		}
 	}
 	return &agentsv1.GetSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
+}
+
+// sandboxReadableWithoutCheck covers the two callers that need no tuple: the
+// owner, who holds one anyway, and the sandbox workload itself.
+//
+// A sandbox workload authenticates as its sandbox, and this is the record the
+// platform services it dials — Gateway, LLM Proxy, Tracing — resolve it through
+// to reach its organization and owner. It is not an organization member and
+// holds no tuple of its own, so an OpenFGA check would refuse it and the
+// resolution every one of those services depends on could not happen. Identity
+// equality answers it instead, the same way an agent instance reads its own
+// inbox.
+func sandboxReadableWithoutCheck(sandbox store.Sandbox, identityID uuid.UUID) bool {
+	return sandbox.OwnerID == identityID || sandbox.Meta.ID == identityID
 }
 
 func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesRequest) (*agentsv1.ListSandboxesResponse, error) {
@@ -216,13 +246,29 @@ func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesR
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	identityID, err := identityUUIDFromContext(ctx)
+	// The Agents Orchestrator lists an organization's sandboxes to reconcile
+	// them and carries no identity, by design — it holds no OpenFGA tuples and
+	// reaches this RPC over the mesh rather than the Gateway. A caller that does
+	// present an identity is a user request and is filtered and checked as one.
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	filter, err := s.sandboxListFilter(ctx, req, organizationID, identityID)
-	if err != nil {
-		return nil, err
+	var filter store.SandboxFilter
+	if hasIdentity {
+		filter, err = s.sandboxListFilter(ctx, req, organizationID, identityID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		filter = store.SandboxFilter{IncludeTerminated: req.GetIncludeTerminated()}
+		if ownerID := req.GetOwnerId(); ownerID != "" {
+			parsed, parseErr := parseUUID(ownerID)
+			if parseErr != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "owner_id: %v", parseErr)
+			}
+			filter.OwnerID = &parsed
+		}
 	}
 	result, err := s.store.ListSandboxes(ctx, organizationID, filter, req.GetPageSize(), cursor)
 	if err != nil {
@@ -471,6 +517,21 @@ func (s *Server) updateSandboxStatusWithAuthorization(ctx context.Context, id st
 	}
 	s.publishSandboxUpdated(ctx, updated)
 	return updated, nil
+}
+
+// optionalIdentityUUIDFromContext reports the caller's identity when one is
+// present. Absence means an internal caller reaching the service over the mesh
+// rather than through the Gateway; a malformed identity is still an error.
+func optionalIdentityUUIDFromContext(ctx context.Context) (uuid.UUID, bool, error) {
+	identityID, ok := metadataValueFromIncomingContext(ctx, "x-identity-id")
+	if !ok {
+		return uuid.UUID{}, false, nil
+	}
+	id, err := parseUUID(identityID)
+	if err != nil {
+		return uuid.UUID{}, false, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
+	}
+	return id, true, nil
 }
 
 func identityUUIDFromContext(ctx context.Context) (uuid.UUID, error) {

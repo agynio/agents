@@ -162,10 +162,12 @@ type VolumeAttachment struct {
 
 type ImagePullSecretAttachment struct {
 	Meta              EntityMeta
+	OrganizationID    uuid.UUID
 	ImagePullSecretID uuid.UUID
 	AgentID           *uuid.UUID
 	McpID             *uuid.UUID
 	HookID            *uuid.UUID
+	EnvironmentID     *uuid.UUID
 }
 
 type Mcp struct {
@@ -197,23 +199,31 @@ type Hook struct {
 }
 
 type Env struct {
-	Meta        EntityMeta
-	Name        string
-	Description string
-	AgentID     *uuid.UUID
-	McpID       *uuid.UUID
-	HookID      *uuid.UUID
-	Value       *string
-	SecretID    *uuid.UUID
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Name           string
+	Description    string
+	AgentID        *uuid.UUID
+	McpID          *uuid.UUID
+	HookID         *uuid.UUID
+	EnvironmentID  *uuid.UUID
+	Value          *string
+	SecretID       *uuid.UUID
 }
 
 type Environment struct {
 	Meta           EntityMeta
 	OrganizationID uuid.UUID
 	Name           string
-	FlavorID       uuid.UUID
 	Image          string
-	FlavorName     string
+	// RunnerID is where workloads for this environment are placed, and Flavor
+	// names an entry in that runner's reported catalog. Flavor is resolved at
+	// workload start, not here.
+	RunnerID *uuid.UUID
+	Flavor   string
+	// Superseded by RunnerID and Flavor; retained for callers still reading it.
+	FlavorID   *uuid.UUID
+	FlavorName string
 }
 
 type Sandbox struct {
@@ -297,6 +307,7 @@ type ImagePullSecretAttachmentInput struct {
 	AgentID           *uuid.UUID
 	McpID             *uuid.UUID
 	HookID            *uuid.UUID
+	EnvironmentID     *uuid.UUID
 }
 
 type McpInput struct {
@@ -346,13 +357,14 @@ type HookUpdate struct {
 }
 
 type EnvInput struct {
-	Name        string
-	Description string
-	AgentID     *uuid.UUID
-	McpID       *uuid.UUID
-	HookID      *uuid.UUID
-	Value       *string
-	SecretID    *uuid.UUID
+	Name          string
+	Description   string
+	AgentID       *uuid.UUID
+	McpID         *uuid.UUID
+	HookID        *uuid.UUID
+	EnvironmentID *uuid.UUID
+	Value         *string
+	SecretID      *uuid.UUID
 }
 
 type EnvUpdate struct {
@@ -377,14 +389,16 @@ type InitScriptUpdate struct {
 
 type EnvironmentInput struct {
 	Name     string
-	FlavorID uuid.UUID
 	Image    string
+	RunnerID *uuid.UUID
+	Flavor   string
 }
 
 type EnvironmentUpdate struct {
 	Name     *string
-	FlavorID *uuid.UUID
 	Image    *string
+	RunnerID *uuid.UUID
+	Flavor   *string
 }
 
 type SandboxInput struct {
@@ -414,11 +428,18 @@ type VolumeAttachmentFilter struct {
 	HookID   *uuid.UUID
 }
 
+// ImagePullSecretAttachmentFilter narrows a list of attachments.
+// OrganizationID is what keeps a list inside one tenant; it is a pointer
+// because the Agents Orchestrator lists an environment's attachments over the
+// mesh without naming an organization, and the remaining fields narrow within
+// whatever scope results.
 type ImagePullSecretAttachmentFilter struct {
+	OrganizationID    *uuid.UUID
 	ImagePullSecretID *uuid.UUID
 	AgentID           *uuid.UUID
 	McpID             *uuid.UUID
 	HookID            *uuid.UUID
+	EnvironmentID     *uuid.UUID
 }
 
 type McpFilter struct {
@@ -433,10 +454,16 @@ type HookFilter struct {
 	AgentID *uuid.UUID
 }
 
+// EnvFilter narrows a list of envs. OrganizationID is what keeps a list inside
+// one tenant; it is a pointer because the Agents Orchestrator lists an
+// environment's envs over the mesh without naming an organization, and the
+// remaining fields narrow within whatever scope results.
 type EnvFilter struct {
-	AgentID *uuid.UUID
-	McpID   *uuid.UUID
-	HookID  *uuid.UUID
+	OrganizationID *uuid.UUID
+	AgentID        *uuid.UUID
+	McpID          *uuid.UUID
+	HookID         *uuid.UUID
+	EnvironmentID  *uuid.UUID
 }
 
 type InitScriptFilter struct {
