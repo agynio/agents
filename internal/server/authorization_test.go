@@ -10,7 +10,9 @@ import (
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestAddAgentAuthorizationWritesAgentOrganizationMembership(t *testing.T) {
@@ -164,6 +166,40 @@ func TestSandboxListFilterDefaultsToCallerOwner(t *testing.T) {
 	})
 }
 
+// A cluster admin is not a member of every organization it administers.
+// Refusing it its own sandboxes while it may list every sandbox in the same
+// organization would deny the narrower request and allow the broader one.
+func TestSandboxListFilterAllowsOwnListingForClusterAdmin(t *testing.T) {
+	authz := &recordingAuthorizationWriter{deniedRelations: map[string]bool{"member": true}}
+	server := &Server{authz: authz}
+	organizationID := uuid.New()
+	identityID := uuid.New()
+
+	filter, err := server.sandboxListFilter(context.Background(), &agentsv1.ListSandboxesRequest{}, organizationID, identityID)
+	if err != nil {
+		t.Fatalf("sandbox list filter: %v", err)
+	}
+	if filter.OwnerID == nil || *filter.OwnerID != identityID {
+		t.Fatalf("expected the caller's own sandboxes, got %v", filter.OwnerID)
+	}
+	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
+		organizationRelationTuple(identityID, organizationID, "member"),
+		organizationRelationTuple(identityID, organizationID, "can_list_sandboxes"),
+	})
+}
+
+// Holding neither is still a refusal, reported as the membership failure the
+// caller actually hit rather than the fallback's.
+func TestSandboxListFilterRefusesNonMemberWithoutListPermission(t *testing.T) {
+	authz := &recordingAuthorizationWriter{deniedRelations: map[string]bool{"member": true, "can_list_sandboxes": true}}
+	server := &Server{authz: authz}
+
+	_, err := server.sandboxListFilter(context.Background(), &agentsv1.ListSandboxesRequest{}, uuid.New(), uuid.New())
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected the membership refusal, got %v", err)
+	}
+}
+
 func TestSandboxListFilterAllowsOrgWideListAll(t *testing.T) {
 	authz := &recordingAuthorizationWriter{}
 	server := &Server{authz: authz}
@@ -209,10 +245,17 @@ type recordingAuthorizationWriter struct {
 	// which is how a caller holding tuples somewhere else is expressed. A nil map
 	// allows every check.
 	allowedObjects map[string]bool
+	// deniedRelations refuses specific relations regardless of object, which is
+	// how an identity that holds some permissions on an organization but not
+	// others — a cluster admin, which is not a member — is expressed.
+	deniedRelations map[string]bool
 }
 
 func (w *recordingAuthorizationWriter) Check(_ context.Context, req *authorizationv1.CheckRequest, _ ...grpc.CallOption) (*authorizationv1.CheckResponse, error) {
 	w.checks = append(w.checks, req)
+	if w.deniedRelations[req.GetTupleKey().GetRelation()] {
+		return &authorizationv1.CheckResponse{Allowed: false}, nil
+	}
 	allowed := w.allowedObjects == nil || w.allowedObjects[req.GetTupleKey().GetObject()]
 	return &authorizationv1.CheckResponse{Allowed: allowed}, nil
 }
