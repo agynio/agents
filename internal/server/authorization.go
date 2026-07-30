@@ -231,6 +231,7 @@ func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUI
 	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
+		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
 	}, nil)
 }
 
@@ -238,6 +239,7 @@ func (s *Server) removeSandboxAuthorization(ctx context.Context, sandboxID uuid.
 	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
+		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
 	})
 }
 
@@ -310,6 +312,22 @@ func sandboxOrganizationTuple(sandboxID uuid.UUID, organizationID uuid.UUID) *au
 		User:     organizationPrefix + organizationID.String(),
 		Relation: "org",
 		Object:   sandboxPrefix + sandboxID.String(),
+	}
+}
+
+// sandboxIdentityOrganizationMembershipTuple makes the sandbox workload a
+// member of its organization, the same way an agent workload is one.
+//
+// The workload authenticates as its own sandbox id, and without this it holds
+// no relation at all: every service it dials would refuse it, because the
+// checks they run — member on the organization — have nothing to resolve. The
+// identity type is not what earns the access; the tuple is, exactly as for
+// every other identity.
+func sandboxIdentityOrganizationMembershipTuple(sandboxID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + sandboxID.String(),
+		Relation: "member",
+		Object:   organizationPrefix + organizationID.String(),
 	}
 }
 
