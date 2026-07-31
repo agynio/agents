@@ -175,6 +175,14 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		environmentID = &resolved
 	}
 	nickname := req.GetNickname()
+	defaultThread, err := agentDefaultThreadFromProto(req.GetDefaultThread())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "default_thread: %v", err)
+	}
+	finalMessage, err := agentFinalMessageFromProto(req.GetFinalMessage())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "final_message: %v", err)
+	}
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
 		Name:          req.GetName(),
@@ -190,6 +198,8 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		Availability:  availability,
 		Resources:     resources,
 		EnvironmentID: environmentID,
+		DefaultThread: defaultThread,
+		FinalMessage:  finalMessage,
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -291,7 +301,7 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	capabilitiesProvided := req.Capabilities != nil
 	availabilityProvided := req.Availability != nil
 	environmentProvided := req.EnvironmentId != nil
-	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided {
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -385,6 +395,21 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 			}
 			update.EnvironmentID = &environmentID
 		}
+	}
+
+	if req.DefaultThread != nil {
+		value, err := agentDefaultThreadFromProto(req.GetDefaultThread())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "default_thread: %v", err)
+		}
+		update.DefaultThread = &value
+	}
+	if req.FinalMessage != nil {
+		value, err := agentFinalMessageFromProto(req.GetFinalMessage())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "final_message: %v", err)
+		}
+		update.FinalMessage = &value
 	}
 
 	agent, err := s.store.UpdateAgent(ctx, id, update)
@@ -1750,6 +1775,54 @@ func agentAvailabilityToProto(availability store.AgentAvailability) agentsv1.Age
 		return agentsv1.AgentAvailability_AGENT_AVAILABILITY_PRIVATE
 	default:
 		panic(fmt.Sprintf("unknown agent availability %q", availability))
+	}
+}
+
+// agentDefaultThreadFromProto maps the class policy. UNSPECIFIED means the
+// caller did not choose, which is the documented default rather than an error:
+// origin is the only inference that composes for delegation.
+func agentDefaultThreadFromProto(value agentsv1.AgentDefaultThread) (store.AgentDefaultThread, error) {
+	switch value {
+	case agentsv1.AgentDefaultThread_AGENT_DEFAULT_THREAD_UNSPECIFIED,
+		agentsv1.AgentDefaultThread_AGENT_DEFAULT_THREAD_ORIGIN:
+		return store.AgentDefaultThreadOrigin, nil
+	case agentsv1.AgentDefaultThread_AGENT_DEFAULT_THREAD_NONE:
+		return store.AgentDefaultThreadNone, nil
+	default:
+		return "", fmt.Errorf("unknown value %d", value)
+	}
+}
+
+func agentDefaultThreadToProto(value store.AgentDefaultThread) agentsv1.AgentDefaultThread {
+	switch value {
+	case store.AgentDefaultThreadNone:
+		return agentsv1.AgentDefaultThread_AGENT_DEFAULT_THREAD_NONE
+	default:
+		return agentsv1.AgentDefaultThread_AGENT_DEFAULT_THREAD_ORIGIN
+	}
+}
+
+// agentFinalMessageFromProto maps what becomes of a turn's final text.
+// UNSPECIFIED is discard, so agents that already send explicitly do not start
+// posting everything twice.
+func agentFinalMessageFromProto(value agentsv1.AgentFinalMessage) (store.AgentFinalMessage, error) {
+	switch value {
+	case agentsv1.AgentFinalMessage_AGENT_FINAL_MESSAGE_UNSPECIFIED,
+		agentsv1.AgentFinalMessage_AGENT_FINAL_MESSAGE_DISCARD:
+		return store.AgentFinalMessageDiscard, nil
+	case agentsv1.AgentFinalMessage_AGENT_FINAL_MESSAGE_DEFAULT_THREAD:
+		return store.AgentFinalMessageDefaultThread, nil
+	default:
+		return "", fmt.Errorf("unknown value %d", value)
+	}
+}
+
+func agentFinalMessageToProto(value store.AgentFinalMessage) agentsv1.AgentFinalMessage {
+	switch value {
+	case store.AgentFinalMessageDefaultThread:
+		return agentsv1.AgentFinalMessage_AGENT_FINAL_MESSAGE_DEFAULT_THREAD
+	default:
+		return agentsv1.AgentFinalMessage_AGENT_FINAL_MESSAGE_DISCARD
 	}
 }
 

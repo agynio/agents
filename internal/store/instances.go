@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	agentInstanceColumns = `ai.id, ai.agent_id, ai.organization_id, ai.label, ai.suffix, ai.state, ai.pause_reason, ai.last_activity_at, ai.created_at, ai.updated_at, ai.nickname`
+	agentInstanceColumns = `ai.id, ai.agent_id, ai.organization_id, ai.label, ai.suffix, ai.state, ai.pause_reason, ai.last_activity_at, ai.created_at, ai.updated_at, ai.nickname, ai.default_thread_id`
 	inboxItemColumns     = `id, agent_instance_id, source_kind, thread_id, message_id, sender_id, body, file_ids, accepted_at, acked_at`
 )
 
@@ -50,6 +50,7 @@ func scanAgentInstance(row pgx.Row) (AgentInstance, error) {
 	var instance AgentInstance
 	var label pgtype.Text
 	var pauseReason pgtype.Text
+	var defaultThreadID pgtype.UUID
 	if err := row.Scan(
 		&instance.Meta.ID,
 		&instance.AgentID,
@@ -62,11 +63,13 @@ func scanAgentInstance(row pgx.Row) (AgentInstance, error) {
 		&instance.Meta.CreatedAt,
 		&instance.Meta.UpdatedAt,
 		&instance.Nickname,
+		&defaultThreadID,
 	); err != nil {
 		return AgentInstance{}, err
 	}
 	instance.Label = stringPtrFromPg(label)
 	instance.PauseReason = stringPtrFromPg(pauseReason)
+	instance.DefaultThreadID = uuidPtrFromPg(defaultThreadID)
 	return instance, nil
 }
 
@@ -104,14 +107,15 @@ func scanInboxItem(row pgx.Row) (InboxItem, error) {
 func (s *Store) CreateAgentInstance(ctx context.Context, input AgentInstanceInput) (AgentInstance, error) {
 	var id uuid.UUID
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO agent_instances (agent_id, organization_id, label, suffix, nickname)
-			VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO agent_instances (agent_id, organization_id, label, suffix, nickname, default_thread_id)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			RETURNING id`,
 		input.AgentID,
 		input.OrganizationID,
 		input.Label,
 		input.Suffix,
 		input.Nickname,
+		input.DefaultThreadID,
 	).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -139,6 +143,26 @@ func (s *Store) GetAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstan
 		return AgentInstance{}, err
 	}
 	return instance, nil
+}
+
+// SetAgentInstanceDefaultThread moves where an instance's untargeted messages
+// go. A nil thread clears it, leaving the instance with no destination.
+func (s *Store) SetAgentInstanceDefaultThread(ctx context.Context, id uuid.UUID, threadID *uuid.UUID) (AgentInstance, error) {
+	var updatedID uuid.UUID
+	err := s.pool.QueryRow(ctx,
+		`UPDATE agent_instances SET default_thread_id = $1, updated_at = NOW()
+			WHERE id = $2 AND state <> $3 RETURNING id`,
+		threadID,
+		id,
+		AgentInstanceStateTerminated,
+	).Scan(&updatedID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return AgentInstance{}, NotFound("agent instance")
+		}
+		return AgentInstance{}, err
+	}
+	return s.GetAgentInstance(ctx, updatedID)
 }
 
 func (s *Store) PauseAgentInstance(ctx context.Context, id uuid.UUID, reason string) (AgentInstance, error) {
