@@ -149,7 +149,26 @@ func (s *Server) GetInstance(ctx context.Context, req *agentsv1.GetInstanceReque
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireInstanceReadAccess(ctx, instance); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetInstanceResponse{Instance: toProtoAgentInstance(instance)}, nil
+}
+
+// requireInstanceReadAccess authorizes reading one instance on the same terms
+// ListInstances reads many: an identified caller must belong to the instance's
+// organization. An internal caller holds no identity and is served -- threads
+// and the orchestrator resolve instances on their own behalf. An instance may
+// always read itself, which no organization membership would grant it.
+func (s *Server) requireInstanceReadAccess(ctx context.Context, instance store.AgentInstance) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity || identityID == instance.Meta.ID {
+		return nil
+	}
+	return s.requireOrganizationMember(ctx, identityID, instance.OrganizationID)
 }
 
 func (s *Server) ListInstances(ctx context.Context, req *agentsv1.ListInstancesRequest) (*agentsv1.ListInstancesResponse, error) {
