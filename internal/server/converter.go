@@ -40,6 +40,8 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Capabilities:   append([]string(nil), agent.Capabilities...),
 		Availability:   agentAvailabilityToProto(agent.Availability),
 		Resources:      toProtoComputeResources(agent.Resources),
+		DefaultThread:  agentDefaultThreadToProto(agent.DefaultThread),
+		FinalMessage:   agentFinalMessageToProto(agent.FinalMessage),
 	}
 	if agent.IdleTimeout != nil {
 		protoAgent.IdleTimeout = agent.IdleTimeout
@@ -261,6 +263,9 @@ func toProtoAgentInstance(instance store.AgentInstance) *agentsv1.AgentInstance 
 	}
 	if instance.PauseReason != nil {
 		protoInstance.PauseReason = instance.PauseReason
+	}
+	if instance.DefaultThreadID != nil {
+		protoInstance.DefaultThreadId = protoString(instance.DefaultThreadID.String())
 	}
 	return protoInstance
 }

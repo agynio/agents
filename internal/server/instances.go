@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	identityv1 "github.com/agynio/agents/.gen/go/agynio/api/identity/v1"
@@ -44,14 +45,47 @@ func (s *Server) CreateInstance(ctx context.Context, req *agentsv1.CreateInstanc
 	if label != nil && !instanceSuffixPattern.MatchString(req.GetLabel()) {
 		return nil, status.Errorf(codes.InvalidArgument, "label must match %s", instanceSuffixPattern.String())
 	}
-	instance, err := s.createInstanceWithIdentity(ctx, agent, label)
+	defaultThreadID, err := resolveDefaultThread(agent, req)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.createInstanceWithIdentity(ctx, agent, label, defaultThreadID)
 	if err != nil {
 		return nil, err
 	}
 	return &agentsv1.CreateInstanceResponse{Instance: toProtoAgentInstance(instance)}, nil
 }
 
-func (s *Server) createInstanceWithIdentity(ctx context.Context, agent store.Agent, label *string) (store.AgentInstance, error) {
+// resolveDefaultThread decides where this instance's untargeted messages will
+// go. Both creation paths funnel through here, and the class definition is
+// already loaded, so the policy is applied here rather than in Threads.
+//
+// An explicit default_thread_id is a deliberate act by a caller who knows the
+// destination, so it wins over the policy -- which governs only what the
+// platform infers when nobody said.
+func resolveDefaultThread(agent store.Agent, req *agentsv1.CreateInstanceRequest) (*uuid.UUID, error) {
+	if raw := strings.TrimSpace(req.GetDefaultThreadId()); raw != "" {
+		id, err := parseUUID(raw)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "default_thread_id: %v", err)
+		}
+		return &id, nil
+	}
+	if agent.DefaultThread == store.AgentDefaultThreadNone {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(req.GetContext().GetThreadId())
+	if raw == "" {
+		return nil, nil
+	}
+	id, err := parseUUID(raw)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "context.thread_id: %v", err)
+	}
+	return &id, nil
+}
+
+func (s *Server) createInstanceWithIdentity(ctx context.Context, agent store.Agent, label *string, defaultThreadID *uuid.UUID) (store.AgentInstance, error) {
 	attempts := 1
 	if label == nil {
 		attempts = 5
@@ -169,6 +203,34 @@ func (s *Server) requireInstanceReadAccess(ctx context.Context, instance store.A
 		return nil
 	}
 	return s.requireOrganizationMember(ctx, identityID, instance.OrganizationID)
+}
+
+// SetInstanceDefaultThread moves where an instance's untargeted messages go.
+// The class policy governs only what the platform infers at creation; naming a
+// thread afterwards is a deliberate act, so it is allowed whatever the class
+// asked for. Unsetting leaves the instance with no destination.
+func (s *Server) SetInstanceDefaultThread(ctx context.Context, req *agentsv1.SetInstanceDefaultThreadRequest) (*agentsv1.SetInstanceDefaultThreadResponse, error) {
+	id, err := parseUUID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	if err := s.requireManageInstance(ctx, id); err != nil {
+		return nil, err
+	}
+	var threadID *uuid.UUID
+	if raw := strings.TrimSpace(req.GetDefaultThreadId()); raw != "" {
+		parsed, err := parseUUID(raw)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "default_thread_id: %v", err)
+		}
+		threadID = &parsed
+	}
+	instance, err := s.store.SetAgentInstanceDefaultThread(ctx, id, threadID)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	s.publishInstanceUpdated(ctx, instance)
+	return &agentsv1.SetInstanceDefaultThreadResponse{Instance: toProtoAgentInstance(instance)}, nil
 }
 
 func (s *Server) ListInstances(ctx context.Context, req *agentsv1.ListInstancesRequest) (*agentsv1.ListInstancesResponse, error) {

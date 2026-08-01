@@ -38,7 +38,33 @@ type Agent struct {
 	// written before environments existed, which still carry Image and
 	// Resources of their own.
 	EnvironmentID *uuid.UUID
+	// Where an instance's default thread comes from when the platform creates
+	// it, and what becomes of a turn's final text. Both describe how the agent
+	// is written, so they belong to the class rather than to an instance.
+	DefaultThread AgentDefaultThread
+	FinalMessage  AgentFinalMessage
 }
+
+// AgentDefaultThread governs the automatic creation path only. Naming a thread
+// explicitly is always allowed, so none means "infer nothing", not "never".
+type AgentDefaultThread string
+
+const (
+	// AgentDefaultThreadOrigin takes the thread that added the instance.
+	// Delegation creates sub-threads downward, so the origin is the thread the
+	// instance owes an answer to.
+	AgentDefaultThreadOrigin AgentDefaultThread = "origin"
+	AgentDefaultThreadNone   AgentDefaultThread = "none"
+)
+
+// AgentFinalMessage decides whether the text an agent CLI produces at the end
+// of a turn is a deliverable or an internal artifact.
+type AgentFinalMessage string
+
+const (
+	AgentFinalMessageDiscard       AgentFinalMessage = "discard"
+	AgentFinalMessageDefaultThread AgentFinalMessage = "default_thread"
+)
 
 type AgentAvailability string
 
@@ -96,14 +122,18 @@ type AgentInstance struct {
 	PauseReason    *string
 	LastActivityAt time.Time
 	Nickname       string
+	// Where this instance's untargeted messages go. Null when the class asked
+	// for no inference and nobody has named one since.
+	DefaultThreadID *uuid.UUID
 }
 
 type AgentInstanceInput struct {
-	AgentID        uuid.UUID
-	OrganizationID uuid.UUID
-	Label          *string
-	Suffix         string
-	Nickname       string
+	AgentID         uuid.UUID
+	OrganizationID  uuid.UUID
+	Label           *string
+	Suffix          string
+	Nickname        string
+	DefaultThreadID *uuid.UUID
 }
 
 type AgentInstanceFilter struct {
@@ -267,6 +297,8 @@ type AgentInput struct {
 	Availability  AgentAvailability
 	Resources     ComputeResources
 	EnvironmentID *uuid.UUID
+	DefaultThread AgentDefaultThread
+	FinalMessage  AgentFinalMessage
 }
 
 type AgentUpdate struct {
@@ -286,6 +318,8 @@ type AgentUpdate struct {
 	// agent may have none, so the two cases are distinct.
 	EnvironmentID      *uuid.UUID
 	ClearEnvironmentID bool
+	DefaultThread      *AgentDefaultThread
+	FinalMessage       *AgentFinalMessage
 }
 
 type VolumeInput struct {
