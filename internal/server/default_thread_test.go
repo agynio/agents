@@ -133,3 +133,28 @@ func TestClassPolicyRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+// The resolved thread was a parameter of createInstanceWithIdentity and never
+// reached the row it builds, so every instance was written with a null
+// default_thread_id whatever the class policy decided or the caller asked for.
+func TestAgentInstanceInputCarriesTheDefaultThread(t *testing.T) {
+	threadID := uuid.New()
+	agent := store.Agent{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		OrganizationID: uuid.New(),
+		Nickname:       "helper",
+	}
+
+	input := agentInstanceInput(agent, nil, "a1b2c3d4", &threadID)
+	if input.DefaultThreadID == nil {
+		t.Fatal("the resolved default thread was dropped")
+	}
+	if *input.DefaultThreadID != threadID {
+		t.Fatalf("expected %s, got %s", threadID, *input.DefaultThreadID)
+	}
+
+	// And nil stays nil: an instance whose class infers nothing has none.
+	if got := agentInstanceInput(agent, nil, "a1b2c3d4", nil); got.DefaultThreadID != nil {
+		t.Fatalf("expected no default thread, got %v", got.DefaultThreadID)
+	}
+}

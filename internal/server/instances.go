@@ -86,6 +86,23 @@ func resolveDefaultThread(agent store.Agent, req *agentsv1.CreateInstanceRequest
 	return &id, nil
 }
 
+// agentInstanceInput assembles the row an instance is created from.
+//
+// Extracted so the resolved default thread cannot go missing again: it was a
+// parameter of the caller and simply never reached this struct, so every
+// instance was written with a null default_thread_id no matter what the class
+// policy resolved or the caller asked for.
+func agentInstanceInput(agent store.Agent, label *string, suffix string, defaultThreadID *uuid.UUID) store.AgentInstanceInput {
+	return store.AgentInstanceInput{
+		AgentID:         agent.Meta.ID,
+		OrganizationID:  agent.OrganizationID,
+		Label:           label,
+		Suffix:          suffix,
+		Nickname:        agent.Nickname,
+		DefaultThreadID: defaultThreadID,
+	}
+}
+
 func (s *Server) createInstanceWithIdentity(ctx context.Context, agent store.Agent, label *string, defaultThreadID *uuid.UUID) (store.AgentInstance, error) {
 	attempts := 1
 	if label == nil {
@@ -97,13 +114,7 @@ func (s *Server) createInstanceWithIdentity(ctx context.Context, agent store.Age
 		if label != nil {
 			suffix = *label
 		}
-		instance, err := s.store.CreateAgentInstance(ctx, store.AgentInstanceInput{
-			AgentID:        agent.Meta.ID,
-			OrganizationID: agent.OrganizationID,
-			Label:          label,
-			Suffix:         suffix,
-			Nickname:       agent.Nickname,
-		})
+		instance, err := s.store.CreateAgentInstance(ctx, agentInstanceInput(agent, label, suffix, defaultThreadID))
 		if err != nil {
 			if _, ok := err.(*store.AlreadyExistsError); ok && label == nil {
 				lastErr = err
