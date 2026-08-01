@@ -494,3 +494,50 @@ func (s *Store) touchInstanceActivity(ctx context.Context, agentInstanceID uuid.
 	}
 	return nil
 }
+
+// IdleInstance is an active instance whose class sets an idle limit, and the
+// facts needed to decide whether it has passed it.
+type IdleInstance struct {
+	ID             uuid.UUID
+	LastActivityAt time.Time
+	IdleTTL        string
+}
+
+// ListIdleGCCandidates returns active instances belonging to an agent that sets
+// instance_idle_ttl.
+//
+// The comparison itself happens in Go: the TTL is a Go duration string, and
+// Postgres reads only a subset of that syntax as an interval -- "1h30m" is a
+// perfectly good Go duration and not an interval at all. Only instances whose
+// class opted in are read, so the set is small by construction.
+func (s *Store) ListIdleGCCandidates(ctx context.Context, limit int) ([]IdleInstance, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT ai.id, ai.last_activity_at, a.instance_idle_ttl
+		   FROM agent_instances ai
+		   JOIN agents a ON a.id = ai.agent_id
+		  WHERE ai.state = $1
+		    AND a.instance_idle_ttl IS NOT NULL
+		    AND a.instance_idle_ttl <> ''
+		  ORDER BY ai.last_activity_at
+		  LIMIT $2`,
+		AgentInstanceStateActive,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	candidates := make([]IdleInstance, 0)
+	for rows.Next() {
+		var candidate IdleInstance
+		if err := rows.Scan(&candidate.ID, &candidate.LastActivityAt, &candidate.IdleTTL); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, rows.Err()
+}
