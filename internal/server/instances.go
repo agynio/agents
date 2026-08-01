@@ -384,7 +384,19 @@ func (s *Server) WriteInboxItem(ctx context.Context, req *agentsv1.WriteInboxIte
 	return &agentsv1.WriteInboxItemResponse{Item: toProtoInboxItem(item)}, nil
 }
 
+// FanoutInboxItem writes an item on behalf of whoever sent the message, so it
+// takes sender_id and thread_id from the caller rather than deriving them.
+// Threads calls it over the mesh with no identity of its own; a caller that
+// presents one is a user, app or agent, and must go through WriteInboxItem,
+// which checks can_write_inbox and that the sender is the caller. Without this
+// any authenticated caller could forge an item from any sender on any thread.
+// An AuthorizationPolicy narrows the unauthenticated path to Threads.
 func (s *Server) FanoutInboxItem(ctx context.Context, req *agentsv1.FanoutInboxItemRequest) (*agentsv1.FanoutInboxItemResponse, error) {
+	if _, hasIdentity, err := optionalIdentityUUIDFromContext(ctx); err != nil {
+		return nil, err
+	} else if hasIdentity {
+		return nil, status.Error(codes.PermissionDenied, "fanout is internal; use WriteInboxItem")
+	}
 	input, err := fanoutInboxInputFromRequest(req)
 	if err != nil {
 		return nil, err
