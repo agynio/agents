@@ -22,6 +22,7 @@ const (
 type AuthorizationWriter interface {
 	Check(ctx context.Context, req *authorizationv1.CheckRequest, opts ...grpc.CallOption) (*authorizationv1.CheckResponse, error)
 	Write(ctx context.Context, req *authorizationv1.WriteRequest, opts ...grpc.CallOption) (*authorizationv1.WriteResponse, error)
+	Read(ctx context.Context, req *authorizationv1.ReadRequest, opts ...grpc.CallOption) (*authorizationv1.ReadResponse, error)
 }
 
 func (s *Server) requireOrganizationMember(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID) error {
@@ -219,12 +220,45 @@ func (s *Server) addAgentInstanceAuthorization(ctx context.Context, instance sto
 	}, nil)
 }
 
+// removeAgentInstanceAuthorization clears every tuple on the instance, not just
+// the three written at creation. can_write_inbox is granted to identities and
+// groups afterwards, and those grants would otherwise outlive the instance they
+// name.
+//
+// The instance's thread participations also name it as the user, but those
+// belong to the threads and are removed with them.
 func (s *Server) removeAgentInstanceAuthorization(ctx context.Context, instance store.AgentInstance) error {
-	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{
-		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
-		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
-		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
-	})
+	deletes := make([]*authorizationv1.TupleKey, 0, 4)
+	object := agentInstancePrefix + instance.Meta.ID.String()
+	pageToken := ""
+	for {
+		response, err := s.authz.Read(ctx, &authorizationv1.ReadRequest{
+			TupleKey:  &authorizationv1.TupleKey{Object: object},
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return err
+		}
+		for _, tuple := range response.GetTuples() {
+			key := tuple.GetKey()
+			if key == nil {
+				continue
+			}
+			deletes = append(deletes, &authorizationv1.TupleKey{
+				User:     key.GetUser(),
+				Relation: key.GetRelation(),
+				Object:   key.GetObject(),
+			})
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	// Organization membership names the instance as the user rather than the
+	// object, so it is not among the tuples read above and is added by hand.
+	deletes = append(deletes, agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID))
+	return s.writeAuthorization(ctx, nil, deletes)
 }
 
 func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID) error {
