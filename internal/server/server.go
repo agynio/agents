@@ -164,6 +164,17 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err := validateDurationString(idleTimeout); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "idle_timeout: %v", err)
 	}
+	// Unset rather than defaulted: no limit is the honest answer for an agent
+	// whose author did not name one, and it is what every agent predating the
+	// column already behaves as.
+	var instanceIdleTTL *string
+	if req.InstanceIdleTtl != nil {
+		value := req.GetInstanceIdleTtl()
+		if err := validateDurationString(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "instance_idle_ttl: %v", err)
+		}
+		instanceIdleTTL = &value
+	}
 	// Optional: an agent may name no environment and run from the deprecated
 	// inline image and resources instead.
 	var environmentID *uuid.UUID
@@ -185,21 +196,22 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	}
 	resources := toStoreComputeResources(req.GetResources())
 	agent, err := s.store.CreateAgent(ctx, organizationID, store.AgentInput{
-		Name:          req.GetName(),
-		Nickname:      nickname,
-		Role:          req.GetRole(),
-		Model:         modelID,
-		Description:   req.GetDescription(),
-		Configuration: req.GetConfiguration(),
-		Image:         req.GetImage(),
-		InitImage:     req.GetInitImage(),
-		IdleTimeout:   &idleTimeout,
-		Capabilities:  append([]string(nil), req.GetCapabilities()...),
-		Availability:  availability,
-		Resources:     resources,
-		EnvironmentID: environmentID,
-		DefaultThread: defaultThread,
-		FinalMessage:  finalMessage,
+		Name:            req.GetName(),
+		Nickname:        nickname,
+		Role:            req.GetRole(),
+		Model:           modelID,
+		Description:     req.GetDescription(),
+		Configuration:   req.GetConfiguration(),
+		Image:           req.GetImage(),
+		InitImage:       req.GetInitImage(),
+		IdleTimeout:     &idleTimeout,
+		Capabilities:    append([]string(nil), req.GetCapabilities()...),
+		Availability:    availability,
+		Resources:       resources,
+		EnvironmentID:   environmentID,
+		DefaultThread:   defaultThread,
+		FinalMessage:    finalMessage,
+		InstanceIdleTTL: instanceIdleTTL,
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -301,7 +313,7 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	capabilitiesProvided := req.Capabilities != nil
 	availabilityProvided := req.Availability != nil
 	environmentProvided := req.EnvironmentId != nil
-	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil {
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil && req.InstanceIdleTtl == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -403,6 +415,18 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 			return nil, status.Errorf(codes.InvalidArgument, "default_thread: %v", err)
 		}
 		update.DefaultThread = &value
+	}
+	if req.InstanceIdleTtl != nil {
+		value := req.GetInstanceIdleTtl()
+		// An empty string clears it -- "this agent no longer expires its
+		// instances" has to be expressible, and validateDurationString would
+		// reject "" as a duration.
+		if value != "" {
+			if err := validateDurationString(value); err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "instance_idle_ttl: %v", err)
+			}
+		}
+		update.InstanceIdleTTL = &value
 	}
 	if req.FinalMessage != nil {
 		value, err := agentFinalMessageFromProto(req.GetFinalMessage())

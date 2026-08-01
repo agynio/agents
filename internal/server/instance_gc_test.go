@@ -114,3 +114,23 @@ func TestSweepIdleInstancesContinuesPastAFailure(t *testing.T) {
 		t.Fatal("the batch stopped at the first failure")
 	}
 }
+
+// The value reaching the column is a Go duration, and the sweep parses it with
+// time.ParseDuration -- so what CreateAgent accepts and what the sweep can read
+// have to be the same set. "1h30m" is the case that matters: a valid duration
+// Postgres would not read as an interval.
+func TestInstanceIdleTTLValidation(t *testing.T) {
+	for _, value := range []string{"30m", "1h30m", "6h", "90s"} {
+		if err := validateDurationString(value); err != nil {
+			t.Fatalf("%q should be accepted: %v", value, err)
+		}
+		if _, err := time.ParseDuration(value); err != nil {
+			t.Fatalf("%q is accepted but the sweep cannot parse it: %v", value, err)
+		}
+	}
+	for _, value := range []string{"forever", "30", "", "1 hour"} {
+		if err := validateDurationString(value); err == nil {
+			t.Fatalf("%q should be rejected", value)
+		}
+	}
+}
