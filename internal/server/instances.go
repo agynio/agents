@@ -11,6 +11,7 @@ import (
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -160,12 +161,19 @@ func (s *Server) registerAgentInstanceIdentity(ctx context.Context, instanceID u
 	return err
 }
 
+// setAgentInstanceNickname names the instance as the instance, not as whoever
+// asked for it.
+//
+// Identity lets a caller set its own nickname with plain organization
+// membership, and anyone else's only with can_manage_members. An instance is
+// created from a thread, so the caller is an ordinary participant who has
+// neither -- and the Orchestrator reaches this with no caller at all. The
+// instance itself holds an organization membership tuple by this point
+// (addAgentInstanceAuthorization runs first), so it is the one caller that is
+// always allowed.
 func (s *Server) setAgentInstanceNickname(ctx context.Context, instance store.AgentInstance) error {
-	identityCtx, err := identityOutgoingContext(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.identity.SetNickname(identityCtx, &identityv1.SetNicknameRequest{
+	identityCtx := metadata.AppendToOutgoingContext(ctx, "x-identity-id", instance.Meta.ID.String())
+	_, err := s.identity.SetNickname(identityCtx, &identityv1.SetNicknameRequest{
 		OrganizationId: instance.OrganizationID.String(),
 		IdentityId:     instance.Meta.ID.String(),
 		Nickname:       instance.Nickname,
