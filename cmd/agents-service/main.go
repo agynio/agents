@@ -78,7 +78,13 @@ func run() error {
 	}()
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
 
-	agentsv1.RegisterAgentsServiceServer(grpcServer, server.New(store.New(pool), authzClient, identity, notificationsClient))
+	agentsService := server.New(store.New(pool), authzClient, identity, notificationsClient)
+	agentsv1.RegisterAgentsServiceServer(grpcServer, agentsService)
+
+	// Instances whose class sets an idle limit are paused once they pass it.
+	// Started before Serve so a service that never receives a request still
+	// reclaims what earlier runs left behind.
+	go agentsService.RunInstanceIdleGC(ctx, cfg.InstanceIdleGCInterval)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddress)
 	if err != nil {

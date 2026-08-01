@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, created_at, updated_at`
+	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id, created_at, updated_at`
@@ -79,6 +79,7 @@ func encodeCapabilities(capabilities []string) ([]byte, error) {
 func scanAgent(row pgx.Row) (Agent, error) {
 	var agent Agent
 	var idleTimeout pgtype.Text
+	var instanceIdleTTL pgtype.Text
 	var capabilities []byte
 	var environmentID pgtype.UUID
 	if err := row.Scan(
@@ -102,12 +103,14 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&environmentID,
 		&agent.DefaultThread,
 		&agent.FinalMessage,
+		&instanceIdleTTL,
 		&agent.Meta.CreatedAt,
 		&agent.Meta.UpdatedAt,
 	); err != nil {
 		return Agent{}, err
 	}
 	agent.IdleTimeout = stringPtrFromPg(idleTimeout)
+	agent.InstanceIdleTTL = stringPtrFromPg(instanceIdleTTL)
 	agent.EnvironmentID = uuidPtrFromPg(environmentID)
 	decodedCapabilities, err := decodeCapabilities(capabilities)
 	if err != nil {
@@ -378,8 +381,8 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		return Agent{}, err
 	}
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		 RETURNING %s`, agentColumns),
 		organizationID,
 		input.Name,
@@ -400,6 +403,7 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		input.EnvironmentID,
 		input.DefaultThread,
 		input.FinalMessage,
+		input.InstanceIdleTTL,
 	)
 	agent, err := scanAgent(row)
 	if err != nil {
@@ -482,6 +486,9 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 	}
 	if update.FinalMessage != nil {
 		builder.add("final_message", *update.FinalMessage)
+	}
+	if update.InstanceIdleTTL != nil {
+		builder.add("instance_idle_ttl", *update.InstanceIdleTTL)
 	}
 
 	if builder.empty() {

@@ -20,20 +20,21 @@ type ComputeResources struct {
 }
 
 type Agent struct {
-	Meta           EntityMeta
-	OrganizationID uuid.UUID
-	Name           string
-	Nickname       string
-	Role           string
-	Model          uuid.UUID
-	Description    string
-	Configuration  string
-	Image          string
-	InitImage      string
-	IdleTimeout    *string
-	Capabilities   []string
-	Availability   AgentAvailability
-	Resources      ComputeResources
+	Meta            EntityMeta
+	OrganizationID  uuid.UUID
+	Name            string
+	Nickname        string
+	Role            string
+	Model           uuid.UUID
+	Description     string
+	Configuration   string
+	Image           string
+	InitImage       string
+	IdleTimeout     *string
+	InstanceIdleTTL *string
+	Capabilities    []string
+	Availability    AgentAvailability
+	Resources       ComputeResources
 	// The environment supplying this agent's image and compute. Null on agents
 	// written before environments existed, which still carry Image and
 	// Resources of their own.
@@ -284,21 +285,22 @@ type InitScript struct {
 }
 
 type AgentInput struct {
-	Name          string
-	Nickname      string
-	Role          string
-	Model         uuid.UUID
-	Description   string
-	Configuration string
-	Image         string
-	InitImage     string
-	IdleTimeout   *string
-	Capabilities  []string
-	Availability  AgentAvailability
-	Resources     ComputeResources
-	EnvironmentID *uuid.UUID
-	DefaultThread AgentDefaultThread
-	FinalMessage  AgentFinalMessage
+	Name            string
+	Nickname        string
+	Role            string
+	Model           uuid.UUID
+	Description     string
+	Configuration   string
+	Image           string
+	InitImage       string
+	IdleTimeout     *string
+	Capabilities    []string
+	Availability    AgentAvailability
+	Resources       ComputeResources
+	EnvironmentID   *uuid.UUID
+	DefaultThread   AgentDefaultThread
+	FinalMessage    AgentFinalMessage
+	InstanceIdleTTL *string
 }
 
 type AgentUpdate struct {
@@ -320,6 +322,7 @@ type AgentUpdate struct {
 	ClearEnvironmentID bool
 	DefaultThread      *AgentDefaultThread
 	FinalMessage       *AgentFinalMessage
+	InstanceIdleTTL    *string
 }
 
 type VolumeInput struct {

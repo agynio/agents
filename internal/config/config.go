@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 type Config struct {
@@ -11,10 +12,21 @@ type Config struct {
 	AuthorizationServiceAddress string
 	IdentityServiceAddress      string
 	NotificationsServiceAddress string
+	// How often idle instances are swept. Configurable mainly so a test
+	// deployment can watch the sweep without waiting a minute for it.
+	InstanceIdleGCInterval time.Duration
 }
 
 func FromEnv() (Config, error) {
 	cfg := Config{}
+	cfg.InstanceIdleGCInterval = time.Minute
+	if raw := os.Getenv("INSTANCE_IDLE_GC_INTERVAL"); raw != "" {
+		interval, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("INSTANCE_IDLE_GC_INTERVAL: %w", err)
+		}
+		cfg.InstanceIdleGCInterval = interval
+	}
 	cfg.GRPCAddress = os.Getenv("GRPC_ADDRESS")
 	if cfg.GRPCAddress == "" {
 		cfg.GRPCAddress = ":50051"

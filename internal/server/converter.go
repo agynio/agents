@@ -43,6 +43,9 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		DefaultThread:  agentDefaultThreadToProto(agent.DefaultThread),
 		FinalMessage:   agentFinalMessageToProto(agent.FinalMessage),
 	}
+	if agent.InstanceIdleTTL != nil {
+		protoAgent.InstanceIdleTtl = agent.InstanceIdleTTL
+	}
 	if agent.IdleTimeout != nil {
 		protoAgent.IdleTimeout = agent.IdleTimeout
 	}
