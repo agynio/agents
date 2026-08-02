@@ -287,6 +287,14 @@ func (s *Server) ListInstances(ctx context.Context, req *agentsv1.ListInstancesR
 	return &agentsv1.ListInstancesResponse{Instances: instances, NextPageToken: nextToken}, nil
 }
 
+// PauseInstance stops an instance from spawning workloads. Two callers reach
+// it, and only one of them is a principal: a user, app or agent pausing an
+// instance deliberately holds can_manage, while the Orchestrator pauses on the
+// platform's behalf -- the runner was deprovisioned, the volume is gone, start
+// retries are spent -- and has no identity to hold anything. Requiring
+// can_manage of both left the Orchestrator unable to record any of those, since
+// an instance is not an owner of its own class. An AuthorizationPolicy narrows
+// the unidentified path to the Orchestrator.
 func (s *Server) PauseInstance(ctx context.Context, req *agentsv1.PauseInstanceRequest) (*agentsv1.PauseInstanceResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
@@ -295,7 +303,7 @@ func (s *Server) PauseInstance(ctx context.Context, req *agentsv1.PauseInstanceR
 	if req.GetPauseReason() == "" {
 		return nil, status.Error(codes.InvalidArgument, "pause_reason must be provided")
 	}
-	if err := s.requireManageInstance(ctx, id); err != nil {
+	if err := s.requireManageInstanceUnlessInternal(ctx, id); err != nil {
 		return nil, err
 	}
 	instance, err := s.store.PauseAgentInstance(ctx, id, req.GetPauseReason())
@@ -362,6 +370,21 @@ func (s *Server) DeleteInstance(ctx context.Context, req *agentsv1.DeleteInstanc
 	}
 	s.publishInstanceUpdated(ctx, instance)
 	return &agentsv1.DeleteInstanceResponse{Instance: toProtoAgentInstance(instance)}, nil
+}
+
+// requireManageInstanceUnlessInternal authorizes a lifecycle change that the
+// platform itself makes as well as its owner. An internal caller holds no
+// identity, the same signal FanoutInboxItem and the instance reads already use;
+// anyone who presents one is a principal and is held to can_manage.
+func (s *Server) requireManageInstanceUnlessInternal(ctx context.Context, id uuid.UUID) error {
+	_, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	return s.requireManageInstance(ctx, id)
 }
 
 func (s *Server) requireManageInstance(ctx context.Context, id uuid.UUID) error {
