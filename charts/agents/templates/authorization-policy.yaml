@@ -48,3 +48,35 @@ spec:
               - POST
             paths:
               - /agynio.api.agents.v1.AgentsService/UpdateSandboxRuntimeState
+---
+# PauseInstance is reachable both ways: the Orchestrator pauses on the
+# platform's behalf with no identity, and a user pauses deliberately through the
+# Gateway, which attaches theirs and is then held to can_manage in the service.
+# So this narrows who may reach the RPC at all, rather than standing in for that
+# check -- without it any workload in the mesh could pause any instance by
+# simply omitting an identity.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ .Release.Name }}-pause-instance
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - "cluster.local/ns/{{ .Release.Namespace }}/sa/agents-orchestrator"
+              - "cluster.local/ns/{{ .Release.Namespace }}/sa/gateway"
+      to:
+        - operation:
+            methods:
+              - POST
+            paths:
+              - /agynio.api.agents.v1.AgentsService/PauseInstance
