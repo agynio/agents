@@ -11,6 +11,7 @@ type IdentityWriter interface {
 	RegisterIdentity(ctx context.Context, req *identityv1.RegisterIdentityRequest, opts ...grpc.CallOption) (*identityv1.RegisterIdentityResponse, error)
 	SetNickname(ctx context.Context, req *identityv1.SetNicknameRequest, opts ...grpc.CallOption) (*identityv1.SetNicknameResponse, error)
 	RemoveNickname(ctx context.Context, req *identityv1.RemoveNicknameRequest, opts ...grpc.CallOption) (*identityv1.RemoveNicknameResponse, error)
+	BatchGetNicknames(ctx context.Context, req *identityv1.BatchGetNicknamesRequest, opts ...grpc.CallOption) (*identityv1.BatchGetNicknamesResponse, error)
 }
 
 type identityWriter struct {
@@ -34,4 +35,8 @@ func (w *identityWriter) SetNickname(ctx context.Context, req *identityv1.SetNic
 
 func (w *identityWriter) RemoveNickname(ctx context.Context, req *identityv1.RemoveNicknameRequest, opts ...grpc.CallOption) (*identityv1.RemoveNicknameResponse, error) {
 	return w.client.RemoveNickname(ctx, req, opts...)
+}
+
+func (w *identityWriter) BatchGetNicknames(ctx context.Context, req *identityv1.BatchGetNicknamesRequest, opts ...grpc.CallOption) (*identityv1.BatchGetNicknamesResponse, error) {
+	return w.client.BatchGetNicknames(ctx, req, opts...)
 }

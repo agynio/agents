@@ -327,6 +327,10 @@ func (noopIdentityWriter) RemoveNickname(context.Context, *identityv1.RemoveNick
 	return &identityv1.RemoveNicknameResponse{}, nil
 }
 
+func (noopIdentityWriter) BatchGetNicknames(context.Context, *identityv1.BatchGetNicknamesRequest, ...grpc.CallOption) (*identityv1.BatchGetNicknamesResponse, error) {
+	return &identityv1.BatchGetNicknamesResponse{}, nil
+}
+
 type noopNotificationsClient struct{}
 
 func (noopNotificationsClient) Publish(context.Context, *notificationsv1.PublishRequest, ...grpc.CallOption) (*notificationsv1.PublishResponse, error) {
