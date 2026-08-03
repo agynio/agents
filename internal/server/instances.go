@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log"
 	"regexp"
 	"strings"
 
@@ -470,7 +471,75 @@ func (s *Server) GetUnackedInboxItems(ctx context.Context, req *agentsv1.GetUnac
 		return nil, toStatusError(err)
 	}
 	items, nextToken := mapInboxListResult(result.Items, result.NextCursor, toProtoInboxItem)
+	s.attachSenderHandles(ctx, instanceID, items)
 	return &agentsv1.GetUnackedInboxItemsResponse{Items: items, NextPageToken: nextToken}, nil
+}
+
+// attachSenderHandles names each sender, because the reader is an agent
+// workload and the Identity service is not reachable from one. A failure leaves
+// the handles empty rather than failing the read: the sender id still stands.
+func (s *Server) attachSenderHandles(ctx context.Context, instanceID uuid.UUID, items []*agentsv1.InboxItem) {
+	if len(items) == 0 {
+		return
+	}
+	instance, err := s.store.GetAgentInstance(ctx, instanceID)
+	if err != nil {
+		log.Printf("agents: read instance %s for sender handles: %v", instanceID, err)
+		return
+	}
+	entries, err := s.senderHandles(ctx, instance.OrganizationID.String(), items)
+	if err != nil {
+		log.Printf("agents: resolve sender handles for instance %s: %v", instanceID, err)
+		return
+	}
+	s.applySenderHandles(items, entries)
+}
+
+func (s *Server) senderHandles(ctx context.Context, organizationID string, items []*agentsv1.InboxItem) ([]*identityv1.NicknameEntry, error) {
+	senderIDs := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		senderID := item.GetSenderId()
+		if senderID == "" {
+			continue
+		}
+		if _, ok := seen[senderID]; ok {
+			continue
+		}
+		seen[senderID] = struct{}{}
+		senderIDs = append(senderIDs, senderID)
+	}
+	if len(senderIDs) == 0 {
+		return nil, nil
+	}
+	response, err := s.identity.BatchGetNicknames(ctx, &identityv1.BatchGetNicknamesRequest{
+		OrganizationId: organizationID,
+		IdentityIds:    senderIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return response.GetEntries(), nil
+}
+
+func (s *Server) applySenderHandles(items []*agentsv1.InboxItem, entries []*identityv1.NicknameEntry) {
+	handles := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		handle := entry.GetNickname()
+		if handle == "" {
+			continue
+		}
+		if suffix := entry.GetInstanceSuffix(); suffix != "" {
+			handle += "#" + suffix
+		}
+		handles[entry.GetIdentityId()] = handle
+	}
+	for _, item := range items {
+		if handle, ok := handles[item.GetSenderId()]; ok {
+			value := handle
+			item.SenderHandle = &value
+		}
+	}
 }
 
 func (s *Server) AckInboxItems(ctx context.Context, req *agentsv1.AckInboxItemsRequest) (*agentsv1.AckInboxItemsResponse, error) {
