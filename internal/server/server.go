@@ -151,8 +151,11 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
 	}
-	if req.GetInitImage() == "" {
-		return nil, status.Error(codes.InvalidArgument, "init_image is required")
+	// init_image is required only for the deprecated inline path. An agent
+	// running an environment takes its agent CLI from that environment's agent
+	// runtime image instead.
+	if req.GetInitImage() == "" && req.GetEnvironmentId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "init_image is required when no environment is named")
 	}
 	availability, err := agentAvailabilityFromProto(req.GetAvailability())
 	if err != nil {
@@ -191,6 +194,19 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		resolved, err := s.environmentInOrganization(ctx, req.GetEnvironmentId(), organizationID)
 		if err != nil {
 			return nil, err
+		}
+		// An agent needs an agent CLI to run. An environment that names a
+		// catalog workspace image but no agent runtime is workspace-only:
+		// usable by a sandbox, not by an agent. Environments still on the
+		// free-form image carry their CLI in the agent's init_image, so they
+		// are exempt until that field goes.
+		environment, err := s.store.GetEnvironment(ctx, resolved)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		if environment.WorkspaceImageID != nil && environment.AgentRuntimeImageID == nil {
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"environment %s names no agent runtime image, so it has no agent CLI to run", environment.Name)
 		}
 		environmentID = &resolved
 	}
