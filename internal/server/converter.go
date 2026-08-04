@@ -141,6 +141,14 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 	if environment.FlavorID != nil {
 		proto.FlavorId = environment.FlavorID.String()
 	}
+	if environment.WorkspaceImageID != nil {
+		proto.WorkspaceImageId = environment.WorkspaceImageID.String()
+		proto.WorkspaceImageTag = environment.WorkspaceImageTag
+	}
+	if environment.AgentRuntimeImageID != nil {
+		proto.AgentRuntimeImageId = environment.AgentRuntimeImageID.String()
+		proto.AgentRuntimeImageTag = environment.AgentRuntimeImageTag
+	}
 	return proto
 }
 
@@ -167,7 +175,7 @@ func toProtoSandbox(sandbox store.Sandbox) *agentsv1.Sandbox {
 }
 
 func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
-	return &agentsv1.Mcp{
+	proto := &agentsv1.Mcp{
 		Meta:        toProtoEntityMeta(mcp.Meta),
 		AgentId:     mcp.AgentID.String(),
 		Name:        mcp.Name,
@@ -176,6 +184,11 @@ func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
 		Resources:   toProtoComputeResources(mcp.Resources),
 		Description: mcp.Description,
 	}
+	if mcp.ImageID != nil {
+		proto.ImageId = mcp.ImageID.String()
+		proto.ImageTag = mcp.ImageTag
+	}
+	return proto
 }
 
 func toProtoSkill(skill store.Skill) *agentsv1.Skill {

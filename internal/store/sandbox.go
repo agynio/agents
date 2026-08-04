@@ -12,14 +12,20 @@ import (
 
 func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID, input EnvironmentInput) (Environment, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO environments (organization_id, name, image, runner_id, flavor)
-		 VALUES ($1, $2, $3, $4, $5)
+		fmt.Sprintf(`INSERT INTO environments
+		 (organization_id, name, image, runner_id, flavor,
+		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING %s`, environmentColumns),
 		organizationID,
 		input.Name,
 		input.Image,
 		input.RunnerID,
 		input.Flavor,
+		input.WorkspaceImageID,
+		input.WorkspaceImageTag,
+		input.AgentRuntimeImageID,
+		input.AgentRuntimeImageTag,
 	)
 	environment, err := scanEnvironment(row)
 	if err != nil {
@@ -60,6 +66,18 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 	}
 	if update.Flavor != nil {
 		builder.add("flavor", *update.Flavor)
+	}
+	if update.WorkspaceImageID != nil {
+		builder.add("workspace_image_id", *update.WorkspaceImageID)
+	}
+	if update.WorkspaceImageTag != nil {
+		builder.add("workspace_image_tag", *update.WorkspaceImageTag)
+	}
+	if update.AgentRuntimeImageID != nil {
+		builder.add("agent_runtime_image_id", *update.AgentRuntimeImageID)
+	}
+	if update.AgentRuntimeImageTag != nil {
+		builder.add("agent_runtime_image_tag", *update.AgentRuntimeImageTag)
 	}
 	if builder.empty() {
 		return Environment{}, fmt.Errorf("environment update requires at least one field")

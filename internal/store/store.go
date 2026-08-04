@@ -18,9 +18,9 @@ const (
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
 	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id, created_at, updated_at`
-	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, created_at, updated_at`
+	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, created_at, updated_at`
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
-	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
+	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
 	hookColumns                      = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
 	envColumns                       = `id, organization_id, name, description, agent_id, mcp_id, hook_id, environment_id, value, secret_id, created_at, updated_at`
@@ -199,6 +199,10 @@ func scanEnvironment(row pgx.Row) (Environment, error) {
 		&environment.FlavorName,
 		&environment.RunnerID,
 		&environment.Flavor,
+		&environment.WorkspaceImageID,
+		&environment.WorkspaceImageTag,
+		&environment.AgentRuntimeImageID,
+		&environment.AgentRuntimeImageTag,
 		&environment.Meta.CreatedAt,
 		&environment.Meta.UpdatedAt,
 	); err != nil {
@@ -248,6 +252,8 @@ func scanMcp(row pgx.Row) (Mcp, error) {
 		&mcp.Resources.LimitsCPU,
 		&mcp.Resources.LimitsMemory,
 		&mcp.Description,
+		&mcp.ImageID,
+		&mcp.ImageTag,
 		&mcp.Meta.CreatedAt,
 		&mcp.Meta.UpdatedAt,
 	); err != nil {
@@ -960,8 +966,8 @@ func (s *Store) ListImagePullSecretAttachments(ctx context.Context, filter Image
 func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (Mcp, error) {
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO mcps (agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			fmt.Sprintf(`INSERT INTO mcps (agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING %s`, mcpColumns),
 			input.AgentID,
 			input.Name,
@@ -972,6 +978,8 @@ func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 			input.Resources.LimitsCPU,
 			input.Resources.LimitsMemory,
 			input.Description,
+			input.ImageID,
+			input.ImageTag,
 		)
 		mcp, err := scanMcp(row)
 		if err != nil {
@@ -1024,6 +1032,12 @@ func (s *Store) UpdateMcp(ctx context.Context, id uuid.UUID, update McpUpdate) (
 	}
 	if update.Description != nil {
 		builder.add("description", *update.Description)
+	}
+	if update.ImageID != nil {
+		builder.add("image_id", *update.ImageID)
+	}
+	if update.ImageTag != nil {
+		builder.add("image_tag", *update.ImageTag)
 	}
 
 	if builder.empty() {

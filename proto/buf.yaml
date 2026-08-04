@@ -1,0 +1,16 @@
+version: v2
+
+# Vendored copies of agynio/api/agents/v1 (catalog image references) and
+# agynio/api/images/v1 (the resolver this service validates against), so it
+# builds before they land in buf.build/agynio/api. Delete this directory and
+# the `buf generate proto` step from the Dockerfile and devspace.yaml once they
+# are published there.
+modules:
+  - path: .
+
+lint:
+  use:
+    - STANDARD
+  except:
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - SERVICE_SUFFIX

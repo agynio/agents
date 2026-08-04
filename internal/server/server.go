@@ -24,6 +24,9 @@ type Server struct {
 	authz         AuthorizationWriter
 	identity      IdentityWriter
 	notifications notificationsv1.NotificationsServiceClient
+	// Optional: without it, image references are stored unvalidated and the
+	// orchestrator resolves them again at workload start.
+	images ImagesClient
 }
 
 const (
@@ -47,6 +50,12 @@ func New(store *store.Store, authz AuthorizationWriter, identity IdentityWriter,
 		panic("notifications client is required")
 	}
 	return &Server{store: store, authz: authz, identity: identity, notifications: notifications}
+}
+
+// WithImages enables catalog validation on write.
+func (s *Server) WithImages(images ImagesClient) *Server {
+	s.images = images
+	return s
 }
 
 func (s *Server) registerAgentIdentity(ctx context.Context, agentID uuid.UUID) error {
@@ -1043,15 +1052,36 @@ func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) 
 	if err := validateMcpName(name); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
 	}
+	reference, err := parseImageReference(req.GetImageId(), req.GetImageTag(), "image")
+	if err != nil {
+		return nil, err
+	}
+	if reference != nil {
+		organizationID, err := s.organizationOfAgent(ctx, agentID)
+		if err != nil {
+			return nil, err
+		}
+		// An MCP may run a purpose-built server image or a devcontainer, so
+		// the type is not narrowed here; the catalog rejects an agent runtime.
+		if err := s.validateMcpImage(ctx, *reference, organizationID); err != nil {
+			return nil, err
+		}
+	}
+
 	resources := toStoreComputeResources(req.GetResources())
-	mcp, err := s.store.CreateMcp(ctx, store.McpInput{
+	input := store.McpInput{
 		AgentID:     agentID,
 		Name:        name,
 		Image:       req.GetImage(),
 		Command:     req.GetCommand(),
 		Resources:   resources,
 		Description: req.GetDescription(),
-	})
+	}
+	if reference != nil {
+		input.ImageID = &reference.ImageID
+		input.ImageTag = reference.Tag
+	}
+	mcp, err := s.store.CreateMcp(ctx, input)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
@@ -1076,11 +1106,15 @@ func (s *Server) UpdateMcp(ctx context.Context, req *agentsv1.UpdateMcpRequest) 
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Image == nil && req.Command == nil && req.Resources == nil && req.Description == nil {
+	if req.Image == nil && req.Command == nil && req.Resources == nil && req.Description == nil &&
+		req.ImageId == nil && req.ImageTag == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 
 	update := store.McpUpdate{}
+	if err := s.applyMcpImageUpdate(ctx, req, id, &update); err != nil {
+		return nil, err
+	}
 	if req.Image != nil {
 		value := req.GetImage()
 		update.Image = &value

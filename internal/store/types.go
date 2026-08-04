@@ -213,6 +213,9 @@ type Mcp struct {
 	Command     string
 	Resources   ComputeResources
 	Description string
+	// The catalog record this sidecar runs, superseding Image.
+	ImageID  *uuid.UUID
+	ImageTag string
 }
 
 type Skill struct {
@@ -259,6 +262,13 @@ type Environment struct {
 	// Superseded by RunnerID and Flavor; retained for callers still reading it.
 	FlavorID   *uuid.UUID
 	FlavorName string
+	// WorkspaceImage is the catalog record the main container runs.
+	// AgentRuntimeImage supplies the agent CLI; nil is a workspace-only
+	// environment, usable by sandboxes and rejected by CreateAgent.
+	WorkspaceImageID     *uuid.UUID
+	WorkspaceImageTag    string
+	AgentRuntimeImageID  *uuid.UUID
+	AgentRuntimeImageTag string
 }
 
 type Sandbox struct {
@@ -363,6 +373,8 @@ type McpInput struct {
 	Command     string
 	Resources   ComputeResources
 	Description string
+	ImageID     *uuid.UUID
+	ImageTag    string
 }
 
 type McpUpdate struct {
@@ -370,6 +382,8 @@ type McpUpdate struct {
 	Command     *string
 	Resources   *ComputeResources
 	Description *string
+	ImageID     **uuid.UUID
+	ImageTag    *string
 }
 
 type SkillInput struct {
@@ -434,10 +448,14 @@ type InitScriptUpdate struct {
 }
 
 type EnvironmentInput struct {
-	Name     string
-	Image    string
-	RunnerID *uuid.UUID
-	Flavor   string
+	Name                 string
+	Image                string
+	RunnerID             *uuid.UUID
+	Flavor               string
+	WorkspaceImageID     *uuid.UUID
+	WorkspaceImageTag    string
+	AgentRuntimeImageID  *uuid.UUID
+	AgentRuntimeImageTag string
 }
 
 type EnvironmentUpdate struct {
@@ -445,6 +463,13 @@ type EnvironmentUpdate struct {
 	Image    *string
 	RunnerID *uuid.UUID
 	Flavor   *string
+	// Double pointers: the outer says the caller named the field, the inner
+	// says what to set. Clearing the agent runtime pair is how an environment
+	// becomes workspace-only.
+	WorkspaceImageID     **uuid.UUID
+	WorkspaceImageTag    *string
+	AgentRuntimeImageID  **uuid.UUID
+	AgentRuntimeImageTag *string
 }
 
 type SandboxInput struct {

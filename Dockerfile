@@ -23,10 +23,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY buf.gen.yaml buf.yaml ./
 RUN buf generate buf.build/agynio/api \
-    --path agynio/api/agents/v1 \
     --path agynio/api/authorization/v1 \
     --path agynio/api/identity/v1 \
     --path agynio/api/notifications/v1
+
+# agents/v1 and images/v1 come from the vendored copies under proto/ until the
+# catalog image references land in buf.build/agynio/api; see proto/buf.yaml.
+COPY proto ./proto
+RUN buf generate proto --template buf.gen.yaml
 
 COPY . .
 
