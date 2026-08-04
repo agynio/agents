@@ -101,19 +101,27 @@ func TestSenderHandlesRequestUniqueSenders(t *testing.T) {
 	}
 }
 
-// Resolved as this service: can_view_threads is owner-or-cluster-admin, which
-// no agent instance holds, so forwarding the caller made every handle empty.
-func TestSenderHandlesDoNotImpersonateTheCaller(t *testing.T) {
+// The lookup is gated on organization membership, which the instance holds, so
+// the caller has to reach Identity: gRPC does not carry incoming metadata onto
+// an outgoing call, and without this every handle came back empty.
+func TestSenderHandlesForwardTheCallerIdentity(t *testing.T) {
 	identity := &nicknameIdentityWriter{}
 	server := &Server{identity: identity}
+	callerID := uuid.New()
 
-	if _, err := server.senderHandles(identityContext(uuid.New()), "org-1", []*agentsv1.InboxItem{{SenderId: "sender-1"}}); err != nil {
+	identityCtx, err := identityOutgoingContext(identityContext(callerID))
+	if err != nil {
+		t.Fatalf("identity context: %v", err)
+	}
+	if _, err := server.senderHandles(identityCtx, "org-1", []*agentsv1.InboxItem{{SenderId: "sender-1"}}); err != nil {
 		t.Fatalf("sender handles: %v", err)
 	}
 
-	if md, ok := metadata.FromOutgoingContext(identity.ctx); ok {
-		if got := md.Get("x-identity-id"); len(got) != 0 {
-			t.Fatalf("expected no caller identity on the lookup, got %v", got)
-		}
+	md, ok := metadata.FromOutgoingContext(identity.ctx)
+	if !ok {
+		t.Fatal("expected outgoing metadata on the lookup")
+	}
+	if got := md.Get("x-identity-id"); len(got) != 1 || got[0] != callerID.String() {
+		t.Fatalf("expected the caller identity to be forwarded, got %v", got)
 	}
 }
