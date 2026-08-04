@@ -96,26 +96,6 @@ func toProtoVolumeAttachment(attachment store.VolumeAttachment) *agentsv1.Volume
 	panic("volume attachment missing target")
 }
 
-func toProtoImagePullSecretAttachment(attachment store.ImagePullSecretAttachment) *agentsv1.ImagePullSecretAttachment {
-	protoAttachment := &agentsv1.ImagePullSecretAttachment{
-		Meta:              toProtoEntityMeta(attachment.Meta),
-		ImagePullSecretId: attachment.ImagePullSecretID.String(),
-	}
-	if attachment.AgentID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_AgentId{AgentId: attachment.AgentID.String()}
-		return protoAttachment
-	}
-	if attachment.McpID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_McpId{McpId: attachment.McpID.String()}
-		return protoAttachment
-	}
-	if attachment.EnvironmentID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_EnvironmentId{EnvironmentId: attachment.EnvironmentID.String()}
-		return protoAttachment
-	}
-	panic("image pull secret attachment missing target")
-}
-
 func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 	proto := &agentsv1.Environment{
 		Meta:           toProtoEntityMeta(environment.Meta),

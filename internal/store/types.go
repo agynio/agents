@@ -194,15 +194,6 @@ type VolumeAttachment struct {
 	McpID    *uuid.UUID
 }
 
-type ImagePullSecretAttachment struct {
-	Meta              EntityMeta
-	OrganizationID    uuid.UUID
-	ImagePullSecretID uuid.UUID
-	AgentID           *uuid.UUID
-	McpID             *uuid.UUID
-	EnvironmentID     *uuid.UUID
-}
-
 type Mcp struct {
 	Meta        EntityMeta
 	AgentID     uuid.UUID
@@ -343,13 +334,6 @@ type VolumeAttachmentInput struct {
 	McpID    *uuid.UUID
 }
 
-type ImagePullSecretAttachmentInput struct {
-	ImagePullSecretID uuid.UUID
-	AgentID           *uuid.UUID
-	McpID             *uuid.UUID
-	EnvironmentID     *uuid.UUID
-}
-
 type McpInput struct {
 	AgentID     uuid.UUID
 	Name        string
@@ -463,19 +447,6 @@ type VolumeAttachmentFilter struct {
 	McpID    *uuid.UUID
 }
 
-// ImagePullSecretAttachmentFilter narrows a list of attachments.
-// OrganizationID is what keeps a list inside one tenant; it is a pointer
-// because the Agents Orchestrator lists an environment's attachments over the
-// mesh without naming an organization, and the remaining fields narrow within
-// whatever scope results.
-type ImagePullSecretAttachmentFilter struct {
-	OrganizationID    *uuid.UUID
-	ImagePullSecretID *uuid.UUID
-	AgentID           *uuid.UUID
-	McpID             *uuid.UUID
-	EnvironmentID     *uuid.UUID
-}
-
 type McpFilter struct {
 	AgentID *uuid.UUID
 }
@@ -529,11 +500,6 @@ type VolumeListResult struct {
 type VolumeAttachmentListResult struct {
 	VolumeAttachments []VolumeAttachment
 	NextCursor        *PageCursor
-}
-
-type ImagePullSecretAttachmentListResult struct {
-	ImagePullSecretAttachments []ImagePullSecretAttachment
-	NextCursor                 *PageCursor
 }
 
 type McpListResult struct {

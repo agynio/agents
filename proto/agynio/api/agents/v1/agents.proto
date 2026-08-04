@@ -102,10 +102,6 @@ service AgentsService {
   rpc ListInitScripts(ListInitScriptsRequest) returns (ListInitScriptsResponse);
 
   // --- Image Pull Secret Attachments (no Update - immutable) ---
-  rpc CreateImagePullSecretAttachment(CreateImagePullSecretAttachmentRequest) returns (CreateImagePullSecretAttachmentResponse);
-  rpc GetImagePullSecretAttachment(GetImagePullSecretAttachmentRequest) returns (GetImagePullSecretAttachmentResponse);
-  rpc DeleteImagePullSecretAttachment(DeleteImagePullSecretAttachmentRequest) returns (DeleteImagePullSecretAttachmentResponse);
-  rpc ListImagePullSecretAttachments(ListImagePullSecretAttachmentsRequest) returns (ListImagePullSecretAttachmentsResponse);
 }
 
 // ===========================================================================
@@ -837,65 +833,6 @@ message ListVolumeAttachmentsRequest {
 
 message ListVolumeAttachmentsResponse {
   repeated VolumeAttachment volume_attachments = 1;
-  string next_page_token = 2;
-}
-
-// ===========================================================================
-// Image Pull Secret Attachment
-// ===========================================================================
-
-message ImagePullSecretAttachment {
-  EntityMeta meta = 1;
-  string image_pull_secret_id = 2; // UUID
-  oneof target {
-    string agent_id = 3;
-    string mcp_id = 4;
-    string environment_id = 6;
-  }
-}
-
-message CreateImagePullSecretAttachmentRequest {
-  string image_pull_secret_id = 1; // UUID
-  oneof target {
-    string agent_id = 2;
-    string mcp_id = 3;
-    string environment_id = 5;
-  }
-}
-
-message CreateImagePullSecretAttachmentResponse {
-  ImagePullSecretAttachment image_pull_secret_attachment = 1;
-}
-
-message GetImagePullSecretAttachmentRequest {
-  string id = 1; // UUID
-}
-
-message GetImagePullSecretAttachmentResponse {
-  ImagePullSecretAttachment image_pull_secret_attachment = 1;
-}
-
-message DeleteImagePullSecretAttachmentRequest {
-  string id = 1; // UUID
-}
-
-message DeleteImagePullSecretAttachmentResponse {}
-
-message ListImagePullSecretAttachmentsRequest {
-  int32 page_size = 1;
-  string page_token = 2;
-  // The organization whose image pull secret attachments are listed. Required
-  // of a caller presenting an identity; the remaining ids only narrow the
-  // result within it.
-  string organization_id = 8; // UUID
-  string image_pull_secret_id = 3;
-  string agent_id = 4;
-  string mcp_id = 5;
-  string environment_id = 7;
-}
-
-message ListImagePullSecretAttachmentsResponse {
-  repeated ImagePullSecretAttachment image_pull_secret_attachments = 1;
   string next_page_token = 2;
 }
 
