@@ -7,7 +7,9 @@ import (
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	identityv1 "github.com/agynio/agents/.gen/go/agynio/api/identity/v1"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 type nicknameIdentityWriter struct {
@@ -15,9 +17,11 @@ type nicknameIdentityWriter struct {
 	entries []*identityv1.NicknameEntry
 	err     error
 	request *identityv1.BatchGetNicknamesRequest
+	ctx     context.Context
 }
 
-func (w *nicknameIdentityWriter) BatchGetNicknames(_ context.Context, req *identityv1.BatchGetNicknamesRequest, _ ...grpc.CallOption) (*identityv1.BatchGetNicknamesResponse, error) {
+func (w *nicknameIdentityWriter) BatchGetNicknames(ctx context.Context, req *identityv1.BatchGetNicknamesRequest, _ ...grpc.CallOption) (*identityv1.BatchGetNicknamesResponse, error) {
+	w.ctx = ctx
 	w.request = req
 	if w.err != nil {
 		return nil, w.err
@@ -94,5 +98,27 @@ func TestSenderHandlesRequestUniqueSenders(t *testing.T) {
 	}
 	if got := identity.request.GetIdentityIds(); len(got) != 2 {
 		t.Fatalf("expected two unique senders, got %v", got)
+	}
+}
+
+func TestSenderHandlesForwardTheCallerIdentity(t *testing.T) {
+	identity := &nicknameIdentityWriter{}
+	server := &Server{identity: identity}
+	callerID := uuid.New()
+
+	identityCtx, err := identityOutgoingContext(identityContext(callerID))
+	if err != nil {
+		t.Fatalf("identity context: %v", err)
+	}
+	if _, err := server.senderHandles(identityCtx, "org-1", []*agentsv1.InboxItem{{SenderId: "sender-1"}}); err != nil {
+		t.Fatalf("sender handles: %v", err)
+	}
+
+	md, ok := metadata.FromOutgoingContext(identity.ctx)
+	if !ok {
+		t.Fatal("expected outgoing metadata on the lookup")
+	}
+	if got := md.Get("x-identity-id"); len(got) != 1 || got[0] != callerID.String() {
+		t.Fatalf("expected the caller identity to be forwarded, got %v", got)
 	}
 }
