@@ -101,24 +101,19 @@ func TestSenderHandlesRequestUniqueSenders(t *testing.T) {
 	}
 }
 
-func TestSenderHandlesForwardTheCallerIdentity(t *testing.T) {
+// Resolved as this service: can_view_threads is owner-or-cluster-admin, which
+// no agent instance holds, so forwarding the caller made every handle empty.
+func TestSenderHandlesDoNotImpersonateTheCaller(t *testing.T) {
 	identity := &nicknameIdentityWriter{}
 	server := &Server{identity: identity}
-	callerID := uuid.New()
 
-	identityCtx, err := identityOutgoingContext(identityContext(callerID))
-	if err != nil {
-		t.Fatalf("identity context: %v", err)
-	}
-	if _, err := server.senderHandles(identityCtx, "org-1", []*agentsv1.InboxItem{{SenderId: "sender-1"}}); err != nil {
+	if _, err := server.senderHandles(identityContext(uuid.New()), "org-1", []*agentsv1.InboxItem{{SenderId: "sender-1"}}); err != nil {
 		t.Fatalf("sender handles: %v", err)
 	}
 
-	md, ok := metadata.FromOutgoingContext(identity.ctx)
-	if !ok {
-		t.Fatal("expected outgoing metadata on the lookup")
-	}
-	if got := md.Get("x-identity-id"); len(got) != 1 || got[0] != callerID.String() {
-		t.Fatalf("expected the caller identity to be forwarded, got %v", got)
+	if md, ok := metadata.FromOutgoingContext(identity.ctx); ok {
+		if got := md.Get("x-identity-id"); len(got) != 0 {
+			t.Fatalf("expected no caller identity on the lookup, got %v", got)
+		}
 	}
 }

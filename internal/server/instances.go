@@ -487,12 +487,9 @@ func (s *Server) attachSenderHandles(ctx context.Context, instanceID uuid.UUID, 
 		log.Printf("agents: read instance %s for sender handles: %v", instanceID, err)
 		return
 	}
-	identityCtx, err := identityOutgoingContext(ctx)
-	if err != nil {
-		log.Printf("agents: forward identity for sender handles: %v", err)
-		return
-	}
-	entries, err := s.senderHandles(identityCtx, instance.OrganizationID.String(), items)
+	// Resolved as this service, not as the caller: can_view_threads is
+	// owner-or-cluster-admin, which no agent instance holds.
+	entries, err := s.senderHandles(ctx, instance.OrganizationID.String(), items)
 	if err != nil {
 		log.Printf("agents: resolve sender handles for instance %s: %v", instanceID, err)
 		return
