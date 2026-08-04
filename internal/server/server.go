@@ -815,12 +815,6 @@ func (s *Server) CreateVolumeAttachment(ctx context.Context, req *agentsv1.Creat
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *agentsv1.CreateVolumeAttachmentRequest_HookId:
-		id, err := parseUUID(target.HookId)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		input.HookID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
@@ -829,7 +823,7 @@ func (s *Server) CreateVolumeAttachment(ctx context.Context, req *agentsv1.Creat
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID)
+	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID)
 	return &agentsv1.CreateVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
 }
 
@@ -857,7 +851,7 @@ func (s *Server) DeleteVolumeAttachment(ctx context.Context, req *agentsv1.Delet
 	if err := s.store.DeleteVolumeAttachment(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID)
+	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID)
 	return &agentsv1.DeleteVolumeAttachmentResponse{}, nil
 }
 
@@ -893,14 +887,6 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		}
 		filter.McpID = &mcpID
 	}
-	if req.GetHookId() != "" {
-		hasFilter = true
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
-	}
 	if !hasFilter {
 		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
 	}
@@ -933,12 +919,6 @@ func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agent
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *agentsv1.CreateImagePullSecretAttachmentRequest_HookId:
-		id, err := parseUUID(target.HookId)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		input.HookID = &id
 	case *agentsv1.CreateImagePullSecretAttachmentRequest_EnvironmentId:
 		id, err := parseUUID(target.EnvironmentId)
 		if err != nil {
@@ -953,7 +933,7 @@ func (s *Server) CreateImagePullSecretAttachment(ctx context.Context, req *agent
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.EnvironmentID)
 	return &agentsv1.CreateImagePullSecretAttachmentResponse{ImagePullSecretAttachment: toProtoImagePullSecretAttachment(attachment)}, nil
 }
 
@@ -981,7 +961,7 @@ func (s *Server) DeleteImagePullSecretAttachment(ctx context.Context, req *agent
 	if err := s.store.DeleteImagePullSecretAttachment(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, attachment.AgentID, attachment.McpID, attachment.EnvironmentID)
 	return &agentsv1.DeleteImagePullSecretAttachmentResponse{}, nil
 }
 
@@ -1035,13 +1015,6 @@ func (s *Server) imagePullSecretAttachmentListFilter(ctx context.Context, req *a
 			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		filter.McpID = &mcpID
-	}
-	if req.GetHookId() != "" {
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return store.ImagePullSecretAttachmentFilter{}, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
 	}
 	if req.GetEnvironmentId() != "" {
 		environmentID, err := parseUUID(req.GetEnvironmentId())
@@ -1295,117 +1268,6 @@ func (s *Server) ListSkills(ctx context.Context, req *agentsv1.ListSkillsRequest
 	return &agentsv1.ListSkillsResponse{Skills: skills, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateHook(ctx context.Context, req *agentsv1.CreateHookRequest) (*agentsv1.CreateHookResponse, error) {
-	agentID, err := parseUUID(req.GetAgentId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-	}
-	resources := toStoreComputeResources(req.GetResources())
-	hook, err := s.store.CreateHook(ctx, store.HookInput{
-		AgentID:     agentID,
-		Event:       req.GetEvent(),
-		Function:    req.GetFunction(),
-		Image:       req.GetImage(),
-		Resources:   resources,
-		Description: req.GetDescription(),
-	})
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	s.publishAgentUpdatedByID(ctx, hook.AgentID)
-	return &agentsv1.CreateHookResponse{Hook: toProtoHook(hook)}, nil
-}
-
-func (s *Server) GetHook(ctx context.Context, req *agentsv1.GetHookRequest) (*agentsv1.GetHookResponse, error) {
-	id, err := parseUUID(req.GetId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
-	}
-	hook, err := s.store.GetHook(ctx, id)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	return &agentsv1.GetHookResponse{Hook: toProtoHook(hook)}, nil
-}
-
-func (s *Server) UpdateHook(ctx context.Context, req *agentsv1.UpdateHookRequest) (*agentsv1.UpdateHookResponse, error) {
-	id, err := parseUUID(req.GetId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
-	}
-	if req.Event == nil && req.Function == nil && req.Image == nil && req.Resources == nil && req.Description == nil {
-		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
-	}
-
-	update := store.HookUpdate{}
-	if req.Event != nil {
-		value := req.GetEvent()
-		update.Event = &value
-	}
-	if req.Function != nil {
-		value := req.GetFunction()
-		update.Function = &value
-	}
-	if req.Image != nil {
-		value := req.GetImage()
-		update.Image = &value
-	}
-	if req.Resources != nil {
-		resources := toStoreComputeResources(req.GetResources())
-		update.Resources = &resources
-	}
-	if req.Description != nil {
-		value := req.GetDescription()
-		update.Description = &value
-	}
-
-	hook, err := s.store.UpdateHook(ctx, id, update)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	s.publishAgentUpdatedByID(ctx, hook.AgentID)
-	return &agentsv1.UpdateHookResponse{Hook: toProtoHook(hook)}, nil
-}
-
-func (s *Server) DeleteHook(ctx context.Context, req *agentsv1.DeleteHookRequest) (*agentsv1.DeleteHookResponse, error) {
-	id, err := parseUUID(req.GetId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
-	}
-	hook, err := s.store.GetHook(ctx, id)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	if err := s.store.DeleteHook(ctx, id); err != nil {
-		return nil, toStatusError(err)
-	}
-	s.publishAgentUpdatedByID(ctx, hook.AgentID)
-	return &agentsv1.DeleteHookResponse{}, nil
-}
-
-func (s *Server) ListHooks(ctx context.Context, req *agentsv1.ListHooksRequest) (*agentsv1.ListHooksResponse, error) {
-	cursor, err := decodePageCursor(req.GetPageToken())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
-	}
-
-	if req.GetAgentId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id must be provided")
-	}
-	agentID, err := parseUUID(req.GetAgentId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-	}
-	filter := store.HookFilter{AgentID: &agentID}
-
-	result, err := s.store.ListHooks(ctx, filter, req.GetPageSize(), cursor)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	hooks, nextToken := mapListResult(result.Hooks, result.NextCursor, toProtoHook)
-	return &agentsv1.ListHooksResponse{Hooks: hooks, NextPageToken: nextToken}, nil
-}
-
 func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) (*agentsv1.CreateEnvResponse, error) {
 	input := store.EnvInput{
 		Name:        req.GetName(),
@@ -1425,12 +1287,6 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *agentsv1.CreateEnvRequest_HookId:
-		id, err := parseUUID(target.HookId)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		input.HookID = &id
 	case *agentsv1.CreateEnvRequest_EnvironmentId:
 		id, err := parseUUID(target.EnvironmentId)
 		if err != nil {
@@ -1459,7 +1315,7 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.EnvironmentID)
 	return &agentsv1.CreateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1512,7 +1368,7 @@ func (s *Server) UpdateEnv(ctx context.Context, req *agentsv1.UpdateEnvRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.EnvironmentID)
 	return &agentsv1.UpdateEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1528,7 +1384,7 @@ func (s *Server) DeleteEnv(ctx context.Context, req *agentsv1.DeleteEnvRequest) 
 	if err := s.store.DeleteEnv(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, env.AgentID, env.McpID, env.EnvironmentID)
 	return &agentsv1.DeleteEnvResponse{}, nil
 }
 
@@ -1575,13 +1431,6 @@ func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsReques
 		}
 		filter.McpID = &mcpID
 	}
-	if req.GetHookId() != "" {
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
-	}
 	if req.GetEnvironmentId() != "" {
 		environmentID, err := parseUUID(req.GetEnvironmentId())
 		if err != nil {
@@ -1617,12 +1466,6 @@ func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitS
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		input.McpID = &id
-	case *agentsv1.CreateInitScriptRequest_HookId:
-		id, err := parseUUID(target.HookId)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		input.HookID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
@@ -1631,7 +1474,7 @@ func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitS
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID, script.HookID)
+	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID)
 	return &agentsv1.CreateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
@@ -1670,7 +1513,7 @@ func (s *Server) UpdateInitScript(ctx context.Context, req *agentsv1.UpdateInitS
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID, script.HookID)
+	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID)
 	return &agentsv1.UpdateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
@@ -1686,7 +1529,7 @@ func (s *Server) DeleteInitScript(ctx context.Context, req *agentsv1.DeleteInitS
 	if err := s.store.DeleteInitScript(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID, script.HookID)
+	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID)
 	return &agentsv1.DeleteInitScriptResponse{}, nil
 }
 
@@ -1713,14 +1556,6 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
 		filter.McpID = &mcpID
-	}
-	if req.GetHookId() != "" {
-		hasFilter = true
-		hookID, err := parseUUID(req.GetHookId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "hook_id: %v", err)
-		}
-		filter.HookID = &hookID
 	}
 	if !hasFilter {
 		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")

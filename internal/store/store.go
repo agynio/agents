@@ -16,15 +16,15 @@ import (
 const (
 	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
-	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, hook_id, created_at, updated_at`
-	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id, created_at, updated_at`
+	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, created_at, updated_at`
+	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, environment_id, created_at, updated_at`
 	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, created_at, updated_at`
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
 	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
 	hookColumns                      = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
-	envColumns                       = `id, organization_id, name, description, agent_id, mcp_id, hook_id, environment_id, value, secret_id, created_at, updated_at`
-	initScriptColumns                = `id, script, description, agent_id, mcp_id, hook_id, created_at, updated_at`
+	envColumns                       = `id, organization_id, name, description, agent_id, mcp_id, environment_id, value, secret_id, created_at, updated_at`
+	initScriptColumns                = `id, script, description, agent_id, mcp_id, created_at, updated_at`
 )
 
 type Store struct {
@@ -144,13 +144,11 @@ func scanVolumeAttachment(row pgx.Row) (VolumeAttachment, error) {
 	var attachment VolumeAttachment
 	var agentID pgtype.UUID
 	var mcpID pgtype.UUID
-	var hookID pgtype.UUID
 	if err := row.Scan(
 		&attachment.Meta.ID,
 		&attachment.VolumeID,
 		&agentID,
 		&mcpID,
-		&hookID,
 		&attachment.Meta.CreatedAt,
 		&attachment.Meta.UpdatedAt,
 	); err != nil {
@@ -158,7 +156,6 @@ func scanVolumeAttachment(row pgx.Row) (VolumeAttachment, error) {
 	}
 	attachment.AgentID = uuidPtrFromPg(agentID)
 	attachment.McpID = uuidPtrFromPg(mcpID)
-	attachment.HookID = uuidPtrFromPg(hookID)
 	return attachment, nil
 }
 
@@ -166,7 +163,6 @@ func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, erro
 	var attachment ImagePullSecretAttachment
 	var agentID pgtype.UUID
 	var mcpID pgtype.UUID
-	var hookID pgtype.UUID
 	var environmentID pgtype.UUID
 	if err := row.Scan(
 		&attachment.Meta.ID,
@@ -174,7 +170,6 @@ func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, erro
 		&attachment.ImagePullSecretID,
 		&agentID,
 		&mcpID,
-		&hookID,
 		&environmentID,
 		&attachment.Meta.CreatedAt,
 		&attachment.Meta.UpdatedAt,
@@ -183,7 +178,6 @@ func scanImagePullSecretAttachment(row pgx.Row) (ImagePullSecretAttachment, erro
 	}
 	attachment.AgentID = uuidPtrFromPg(agentID)
 	attachment.McpID = uuidPtrFromPg(mcpID)
-	attachment.HookID = uuidPtrFromPg(hookID)
 	attachment.EnvironmentID = uuidPtrFromPg(environmentID)
 	return attachment, nil
 }
@@ -278,32 +272,10 @@ func scanSkill(row pgx.Row) (Skill, error) {
 	return skill, nil
 }
 
-func scanHook(row pgx.Row) (Hook, error) {
-	var hook Hook
-	if err := row.Scan(
-		&hook.Meta.ID,
-		&hook.AgentID,
-		&hook.Event,
-		&hook.Function,
-		&hook.Image,
-		&hook.Resources.RequestsCPU,
-		&hook.Resources.RequestsMemory,
-		&hook.Resources.LimitsCPU,
-		&hook.Resources.LimitsMemory,
-		&hook.Description,
-		&hook.Meta.CreatedAt,
-		&hook.Meta.UpdatedAt,
-	); err != nil {
-		return Hook{}, err
-	}
-	return hook, nil
-}
-
 func scanEnv(row pgx.Row) (Env, error) {
 	var env Env
 	var agentID pgtype.UUID
 	var mcpID pgtype.UUID
-	var hookID pgtype.UUID
 	var environmentID pgtype.UUID
 	var value pgtype.Text
 	var secretID pgtype.UUID
@@ -314,7 +286,6 @@ func scanEnv(row pgx.Row) (Env, error) {
 		&env.Description,
 		&agentID,
 		&mcpID,
-		&hookID,
 		&environmentID,
 		&value,
 		&secretID,
@@ -325,7 +296,6 @@ func scanEnv(row pgx.Row) (Env, error) {
 	}
 	env.AgentID = uuidPtrFromPg(agentID)
 	env.McpID = uuidPtrFromPg(mcpID)
-	env.HookID = uuidPtrFromPg(hookID)
 	env.EnvironmentID = uuidPtrFromPg(environmentID)
 	env.Value = stringPtrFromPg(value)
 	env.SecretID = uuidPtrFromPg(secretID)
@@ -336,14 +306,12 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 	var script InitScript
 	var agentID pgtype.UUID
 	var mcpID pgtype.UUID
-	var hookID pgtype.UUID
 	if err := row.Scan(
 		&script.Meta.ID,
 		&script.Script,
 		&script.Description,
 		&agentID,
 		&mcpID,
-		&hookID,
 		&script.Meta.CreatedAt,
 		&script.Meta.UpdatedAt,
 	); err != nil {
@@ -351,7 +319,6 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 	}
 	script.AgentID = uuidPtrFromPg(agentID)
 	script.McpID = uuidPtrFromPg(mcpID)
-	script.HookID = uuidPtrFromPg(hookID)
 	return script, nil
 }
 
@@ -748,13 +715,12 @@ func (s *Store) ListAgentIDsForVolume(ctx context.Context, volumeID uuid.UUID) (
 func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachmentInput) (VolumeAttachment, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (VolumeAttachment, error) {
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id, hook_id)
+			fmt.Sprintf(`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING %s`, volumeAttachmentColumns),
 			input.VolumeID,
 			input.AgentID,
 			input.McpID,
-			input.HookID,
 		)
 		attachment, err := scanVolumeAttachment(row)
 		if err != nil {
@@ -769,7 +735,7 @@ func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachme
 			}
 			return VolumeAttachment{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID)
+		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID)
 		if err != nil {
 			return VolumeAttachment{}, err
 		}
@@ -808,7 +774,7 @@ func (s *Store) DeleteVolumeAttachment(ctx context.Context, id uuid.UUID) error 
 			}
 			return struct{}{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID)
+		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID)
 		if err != nil {
 			return struct{}{}, err
 		}
@@ -832,9 +798,6 @@ func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachme
 	if filter.McpID != nil {
 		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
 	}
-	if filter.HookID != nil {
-		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
-	}
 
 	attachments, nextCursor, err := listEntities(ctx, s.pool,
 		fmt.Sprintf("SELECT %s FROM volume_attachments", volumeAttachmentColumns),
@@ -855,19 +818,18 @@ func (s *Store) CreateImagePullSecretAttachment(ctx context.Context, input Image
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (ImagePullSecretAttachment, error) {
 		// A caller names only the target, so the organization the row is scoped
 		// by is derived from it, in the same transaction that writes the row.
-		organizationID, err := organizationIDForTarget(ctx, tx, input.AgentID, input.McpID, input.HookID, input.EnvironmentID)
+		organizationID, err := organizationIDForTarget(ctx, tx, input.AgentID, input.McpID, input.EnvironmentID)
 		if err != nil {
 			return ImagePullSecretAttachment{}, err
 		}
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO image_pull_secret_attachments (organization_id, image_pull_secret_id, agent_id, mcp_id, hook_id, environment_id)
+			fmt.Sprintf(`INSERT INTO image_pull_secret_attachments (organization_id, image_pull_secret_id, agent_id, mcp_id, environment_id)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING %s`, imagePullSecretAttachmentColumns),
 			organizationID,
 			input.ImagePullSecretID,
 			input.AgentID,
 			input.McpID,
-			input.HookID,
 			input.EnvironmentID,
 		)
 		attachment, err := scanImagePullSecretAttachment(row)
@@ -883,7 +845,7 @@ func (s *Store) CreateImagePullSecretAttachment(ctx context.Context, input Image
 			}
 			return ImagePullSecretAttachment{}, err
 		}
-		if err := touchTargetAgent(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, attachment.AgentID, attachment.McpID, attachment.EnvironmentID); err != nil {
 			return ImagePullSecretAttachment{}, err
 		}
 		return attachment, nil
@@ -918,7 +880,7 @@ func (s *Store) DeleteImagePullSecretAttachment(ctx context.Context, id uuid.UUI
 			}
 			return struct{}{}, err
 		}
-		if err := touchTargetAgent(ctx, tx, attachment.AgentID, attachment.McpID, attachment.HookID, attachment.EnvironmentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, attachment.AgentID, attachment.McpID, attachment.EnvironmentID); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
@@ -940,9 +902,6 @@ func (s *Store) ListImagePullSecretAttachments(ctx context.Context, filter Image
 	}
 	if filter.McpID != nil {
 		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
-	}
-	if filter.HookID != nil {
-		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
 	}
 	if filter.EnvironmentID != nil {
 		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
@@ -1223,145 +1182,11 @@ func (s *Store) ListSkills(ctx context.Context, filter SkillFilter, pageSize int
 	return SkillListResult{Skills: skills, NextCursor: nextCursor}, nil
 }
 
-func (s *Store) CreateHook(ctx context.Context, input HookInput) (Hook, error) {
-	return withTx(ctx, s.pool, func(tx pgx.Tx) (Hook, error) {
-		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO hooks (agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING %s`, hookColumns),
-			input.AgentID,
-			input.Event,
-			input.Function,
-			input.Image,
-			input.Resources.RequestsCPU,
-			input.Resources.RequestsMemory,
-			input.Resources.LimitsCPU,
-			input.Resources.LimitsMemory,
-			input.Description,
-		)
-		hook, err := scanHook(row)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-				return Hook{}, ForeignKeyViolation("hook")
-			}
-			return Hook{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, hook.AgentID); err != nil {
-			return Hook{}, err
-		}
-		return hook, nil
-	})
-}
-
-func (s *Store) GetHook(ctx context.Context, id uuid.UUID) (Hook, error) {
-	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT %s FROM hooks WHERE id = $1`, hookColumns),
-		id,
-	)
-	hook, err := scanHook(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Hook{}, NotFound("hook")
-		}
-		return Hook{}, err
-	}
-	return hook, nil
-}
-
-func (s *Store) UpdateHook(ctx context.Context, id uuid.UUID, update HookUpdate) (Hook, error) {
-	builder := updateBuilder{}
-	if update.Event != nil {
-		builder.add("event", *update.Event)
-	}
-	if update.Function != nil {
-		builder.add("\"function\"", *update.Function)
-	}
-	if update.Image != nil {
-		builder.add("image", *update.Image)
-	}
-	if update.Resources != nil {
-		builder.add("resources_requests_cpu", update.Resources.RequestsCPU)
-		builder.add("resources_requests_memory", update.Resources.RequestsMemory)
-		builder.add("resources_limits_cpu", update.Resources.LimitsCPU)
-		builder.add("resources_limits_memory", update.Resources.LimitsMemory)
-	}
-	if update.Description != nil {
-		builder.add("description", *update.Description)
-	}
-
-	if builder.empty() {
-		return Hook{}, fmt.Errorf("hook update requires at least one field")
-	}
-	return withTx(ctx, s.pool, func(tx pgx.Tx) (Hook, error) {
-		query, args := builder.build("hooks", hookColumns, id)
-		row := tx.QueryRow(ctx, query, args...)
-		hook, err := scanHook(row)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return Hook{}, NotFound("hook")
-			}
-			return Hook{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, hook.AgentID); err != nil {
-			return Hook{}, err
-		}
-		return hook, nil
-	})
-}
-
-func (s *Store) DeleteHook(ctx context.Context, id uuid.UUID) error {
-	_, err := withTx(ctx, s.pool, func(tx pgx.Tx) (struct{}, error) {
-		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`DELETE FROM hooks WHERE id = $1 RETURNING %s`, hookColumns),
-			id,
-		)
-		hook, err := scanHook(row)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return struct{}{}, NotFound("hook")
-			}
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-				return struct{}{}, ForeignKeyViolation("hook")
-			}
-			return struct{}{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, hook.AgentID); err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, nil
-	})
-	return err
-}
-
-func (s *Store) ListHooks(ctx context.Context, filter HookFilter, pageSize int32, cursor *PageCursor) (HookListResult, error) {
-	clauses := []string{}
-	args := []any{}
-	if filter.AgentID != nil {
-		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
-	}
-
-	hooks, nextCursor, err := listEntities(ctx, s.pool,
-		fmt.Sprintf("SELECT %s FROM hooks", hookColumns),
-		clauses,
-		args,
-		cursor,
-		pageSize,
-		scanHook,
-		func(hook Hook) uuid.UUID { return hook.Meta.ID },
-	)
-	if err != nil {
-		return HookListResult{}, err
-	}
-	return HookListResult{Hooks: hooks, NextCursor: nextCursor}, nil
-}
-
 func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (Env, error) {
 		// A caller names only the target, so the organization the row is scoped
 		// by is derived from it, in the same transaction that writes the row.
-		organizationID, err := organizationIDForTarget(ctx, tx, input.AgentID, input.McpID, input.HookID, input.EnvironmentID)
+		organizationID, err := organizationIDForTarget(ctx, tx, input.AgentID, input.McpID, input.EnvironmentID)
 		if err != nil {
 			return Env{}, err
 		}
@@ -1374,7 +1199,6 @@ func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 			input.Description,
 			input.AgentID,
 			input.McpID,
-			input.HookID,
 			input.EnvironmentID,
 			input.Value,
 			input.SecretID,
@@ -1387,7 +1211,7 @@ func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 			}
 			return Env{}, err
 		}
-		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.EnvironmentID); err != nil {
 			return Env{}, err
 		}
 		return env, nil
@@ -1439,7 +1263,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, update EnvUpdate) (
 			}
 			return Env{}, err
 		}
-		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.EnvironmentID); err != nil {
 			return Env{}, err
 		}
 		return env, nil
@@ -1459,7 +1283,7 @@ func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) error {
 			}
 			return struct{}{}, err
 		}
-		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.HookID, env.EnvironmentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, env.AgentID, env.McpID, env.EnvironmentID); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
@@ -1478,9 +1302,6 @@ func (s *Store) ListEnvs(ctx context.Context, filter EnvFilter, pageSize int32, 
 	}
 	if filter.McpID != nil {
 		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
-	}
-	if filter.HookID != nil {
-		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
 	}
 	if filter.EnvironmentID != nil {
 		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
@@ -1511,7 +1332,6 @@ func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (In
 			input.Description,
 			input.AgentID,
 			input.McpID,
-			input.HookID,
 		)
 		script, err := scanInitScript(row)
 		if err != nil {
@@ -1521,7 +1341,7 @@ func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (In
 			}
 			return InitScript{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID, script.HookID)
+		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID)
 		if err != nil {
 			return InitScript{}, err
 		}
@@ -1569,7 +1389,7 @@ func (s *Store) UpdateInitScript(ctx context.Context, id uuid.UUID, update InitS
 			}
 			return InitScript{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID, script.HookID)
+		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID)
 		if err != nil {
 			return InitScript{}, err
 		}
@@ -1593,7 +1413,7 @@ func (s *Store) DeleteInitScript(ctx context.Context, id uuid.UUID) error {
 			}
 			return struct{}{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID, script.HookID)
+		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID)
 		if err != nil {
 			return struct{}{}, err
 		}
@@ -1613,9 +1433,6 @@ func (s *Store) ListInitScripts(ctx context.Context, filter InitScriptFilter, pa
 	}
 	if filter.McpID != nil {
 		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
-	}
-	if filter.HookID != nil {
-		clauses, args = appendClause(clauses, args, "hook_id = $%d", *filter.HookID)
 	}
 
 	scripts, nextCursor, err := listEntities(ctx, s.pool,

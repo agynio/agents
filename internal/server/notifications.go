@@ -83,7 +83,7 @@ func (s *Server) publishSandboxUpdated(ctx context.Context, sandbox store.Sandbo
 	}
 }
 
-func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID) (uuid.UUID, error) {
+func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID) (uuid.UUID, error) {
 	if agentID != nil {
 		return *agentID, nil
 	}
@@ -93,13 +93,6 @@ func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *
 			return uuid.UUID{}, err
 		}
 		return mcp.AgentID, nil
-	}
-	if hookID != nil {
-		hook, err := s.store.GetHook(ctx, *hookID)
-		if err != nil {
-			return uuid.UUID{}, err
-		}
-		return hook.AgentID, nil
 	}
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
 }
@@ -118,15 +111,15 @@ func (s *Server) publishAgentUpdatedForVolume(ctx context.Context, volumeID uuid
 // publishAgentUpdatedForConfigTarget notifies the agent whose configuration the
 // row is part of. A row on an environment is part of no agent's configuration —
 // an environment belongs to an organization — and there is nothing to notify.
-func (s *Server) publishAgentUpdatedForConfigTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) {
+func (s *Server) publishAgentUpdatedForConfigTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) {
 	if environmentID != nil {
 		return
 	}
-	s.publishAgentUpdatedForTarget(ctx, agentID, mcpID, hookID)
+	s.publishAgentUpdatedForTarget(ctx, agentID, mcpID)
 }
 
-func (s *Server) publishAgentUpdatedForTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID) {
-	resolvedID, err := s.resolveAgentID(ctx, agentID, mcpID, hookID)
+func (s *Server) publishAgentUpdatedForTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID) {
+	resolvedID, err := s.resolveAgentID(ctx, agentID, mcpID)
 	if err != nil {
 		log.Printf("agents: resolve agent for notification: %v", err)
 		return

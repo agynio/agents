@@ -7,7 +7,7 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/agynio/api/gen/agynio/api/agents/v1;agentsv1";
 
 // AgentsService manages agent resources: agents, volumes, volume attachments,
-// MCP servers, skills, hooks, environment variables, and init scripts.
+// MCP servers, skills, environment variables, and init scripts.
 //
 // This is a control-plane service. It stores desired state;
 // other services reconcile toward it.
@@ -86,12 +86,6 @@ service AgentsService {
   rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse);
   rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
 
-  // --- Hooks ---
-  rpc CreateHook(CreateHookRequest) returns (CreateHookResponse);
-  rpc GetHook(GetHookRequest) returns (GetHookResponse);
-  rpc UpdateHook(UpdateHookRequest) returns (UpdateHookResponse);
-  rpc DeleteHook(DeleteHookRequest) returns (DeleteHookResponse);
-  rpc ListHooks(ListHooksRequest) returns (ListHooksResponse);
 
   // --- Envs ---
   rpc CreateEnv(CreateEnvRequest) returns (CreateEnvResponse);
@@ -804,7 +798,6 @@ message VolumeAttachment {
   oneof target {
     string agent_id = 3;
     string mcp_id = 4;
-    string hook_id = 5;
   }
 }
 
@@ -813,7 +806,6 @@ message CreateVolumeAttachmentRequest {
   oneof target {
     string agent_id = 2;
     string mcp_id = 3;
-    string hook_id = 4;
   }
 }
 
@@ -841,7 +833,6 @@ message ListVolumeAttachmentsRequest {
   string volume_id = 3;
   string agent_id = 4;
   string mcp_id = 5;
-  string hook_id = 6;
 }
 
 message ListVolumeAttachmentsResponse {
@@ -859,7 +850,6 @@ message ImagePullSecretAttachment {
   oneof target {
     string agent_id = 3;
     string mcp_id = 4;
-    string hook_id = 5;
     string environment_id = 6;
   }
 }
@@ -869,7 +859,6 @@ message CreateImagePullSecretAttachmentRequest {
   oneof target {
     string agent_id = 2;
     string mcp_id = 3;
-    string hook_id = 4;
     string environment_id = 5;
   }
 }
@@ -902,7 +891,6 @@ message ListImagePullSecretAttachmentsRequest {
   string image_pull_secret_id = 3;
   string agent_id = 4;
   string mcp_id = 5;
-  string hook_id = 6;
   string environment_id = 7;
 }
 
@@ -1044,71 +1032,6 @@ message ListSkillsResponse {
 }
 
 // ===========================================================================
-// Hook
-// ===========================================================================
-
-message Hook {
-  EntityMeta meta = 1;
-  string agent_id = 2; // UUID
-  string event = 3;
-  string function = 4;
-  string image = 5;
-  ComputeResources resources = 6;
-  string description = 7;
-}
-
-message CreateHookRequest {
-  string agent_id = 1; // UUID
-  string event = 2;
-  string function = 3;
-  string image = 4;
-  ComputeResources resources = 5;
-  string description = 6;
-}
-
-message CreateHookResponse {
-  Hook hook = 1;
-}
-
-message GetHookRequest {
-  string id = 1; // UUID
-}
-
-message GetHookResponse {
-  Hook hook = 1;
-}
-
-message UpdateHookRequest {
-  string id = 1; // UUID
-  optional string event = 2;
-  optional string function = 3;
-  optional string image = 4;
-  optional ComputeResources resources = 5;
-  optional string description = 6;
-}
-
-message UpdateHookResponse {
-  Hook hook = 1;
-}
-
-message DeleteHookRequest {
-  string id = 1; // UUID
-}
-
-message DeleteHookResponse {}
-
-message ListHooksRequest {
-  int32 page_size = 1;
-  string page_token = 2;
-  string agent_id = 3;
-}
-
-message ListHooksResponse {
-  repeated Hook hooks = 1;
-  string next_page_token = 2;
-}
-
-// ===========================================================================
 // Env
 // ===========================================================================
 
@@ -1119,7 +1042,6 @@ message Env {
   oneof target {
     string agent_id = 4;
     string mcp_id = 5;
-    string hook_id = 6;
     string environment_id = 9;
   }
   oneof source {
@@ -1134,7 +1056,6 @@ message CreateEnvRequest {
   oneof target {
     string agent_id = 3;
     string mcp_id = 4;
-    string hook_id = 5;
     string environment_id = 8;
   }
   oneof source {
@@ -1181,7 +1102,6 @@ message ListEnvsRequest {
   string organization_id = 7; // UUID
   string agent_id = 3;
   string mcp_id = 4;
-  string hook_id = 5;
   string environment_id = 6;
 }
 
@@ -1201,7 +1121,6 @@ message InitScript {
   oneof target {
     string agent_id = 4;
     string mcp_id = 5;
-    string hook_id = 6;
   }
 }
 
@@ -1211,7 +1130,6 @@ message CreateInitScriptRequest {
   oneof target {
     string agent_id = 3;
     string mcp_id = 4;
-    string hook_id = 5;
   }
 }
 
@@ -1248,7 +1166,6 @@ message ListInitScriptsRequest {
   string page_token = 2;
   string agent_id = 3;
   string mcp_id = 4;
-  string hook_id = 5;
 }
 
 message ListInitScriptsResponse {

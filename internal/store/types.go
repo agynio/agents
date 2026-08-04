@@ -192,7 +192,6 @@ type VolumeAttachment struct {
 	VolumeID uuid.UUID
 	AgentID  *uuid.UUID
 	McpID    *uuid.UUID
-	HookID   *uuid.UUID
 }
 
 type ImagePullSecretAttachment struct {
@@ -201,7 +200,6 @@ type ImagePullSecretAttachment struct {
 	ImagePullSecretID uuid.UUID
 	AgentID           *uuid.UUID
 	McpID             *uuid.UUID
-	HookID            *uuid.UUID
 	EnvironmentID     *uuid.UUID
 }
 
@@ -226,16 +224,6 @@ type Skill struct {
 	Description string
 }
 
-type Hook struct {
-	Meta        EntityMeta
-	AgentID     uuid.UUID
-	Event       string
-	Function    string
-	Image       string
-	Resources   ComputeResources
-	Description string
-}
-
 type Env struct {
 	Meta           EntityMeta
 	OrganizationID uuid.UUID
@@ -243,7 +231,6 @@ type Env struct {
 	Description    string
 	AgentID        *uuid.UUID
 	McpID          *uuid.UUID
-	HookID         *uuid.UUID
 	EnvironmentID  *uuid.UUID
 	Value          *string
 	SecretID       *uuid.UUID
@@ -291,7 +278,6 @@ type InitScript struct {
 	Description string
 	AgentID     *uuid.UUID
 	McpID       *uuid.UUID
-	HookID      *uuid.UUID
 }
 
 type AgentInput struct {
@@ -355,14 +341,12 @@ type VolumeAttachmentInput struct {
 	VolumeID uuid.UUID
 	AgentID  *uuid.UUID
 	McpID    *uuid.UUID
-	HookID   *uuid.UUID
 }
 
 type ImagePullSecretAttachmentInput struct {
 	ImagePullSecretID uuid.UUID
 	AgentID           *uuid.UUID
 	McpID             *uuid.UUID
-	HookID            *uuid.UUID
 	EnvironmentID     *uuid.UUID
 }
 
@@ -399,29 +383,11 @@ type SkillUpdate struct {
 	Description *string
 }
 
-type HookInput struct {
-	AgentID     uuid.UUID
-	Event       string
-	Function    string
-	Image       string
-	Resources   ComputeResources
-	Description string
-}
-
-type HookUpdate struct {
-	Event       *string
-	Function    *string
-	Image       *string
-	Resources   *ComputeResources
-	Description *string
-}
-
 type EnvInput struct {
 	Name          string
 	Description   string
 	AgentID       *uuid.UUID
 	McpID         *uuid.UUID
-	HookID        *uuid.UUID
 	EnvironmentID *uuid.UUID
 	Value         *string
 	SecretID      *uuid.UUID
@@ -439,7 +405,6 @@ type InitScriptInput struct {
 	Description string
 	AgentID     *uuid.UUID
 	McpID       *uuid.UUID
-	HookID      *uuid.UUID
 }
 
 type InitScriptUpdate struct {
@@ -496,7 +461,6 @@ type VolumeAttachmentFilter struct {
 	VolumeID *uuid.UUID
 	AgentID  *uuid.UUID
 	McpID    *uuid.UUID
-	HookID   *uuid.UUID
 }
 
 // ImagePullSecretAttachmentFilter narrows a list of attachments.
@@ -509,7 +473,6 @@ type ImagePullSecretAttachmentFilter struct {
 	ImagePullSecretID *uuid.UUID
 	AgentID           *uuid.UUID
 	McpID             *uuid.UUID
-	HookID            *uuid.UUID
 	EnvironmentID     *uuid.UUID
 }
 
@@ -521,10 +484,6 @@ type SkillFilter struct {
 	AgentID *uuid.UUID
 }
 
-type HookFilter struct {
-	AgentID *uuid.UUID
-}
-
 // EnvFilter narrows a list of envs. OrganizationID is what keeps a list inside
 // one tenant; it is a pointer because the Agents Orchestrator lists an
 // environment's envs over the mesh without naming an organization, and the
@@ -533,14 +492,12 @@ type EnvFilter struct {
 	OrganizationID *uuid.UUID
 	AgentID        *uuid.UUID
 	McpID          *uuid.UUID
-	HookID         *uuid.UUID
 	EnvironmentID  *uuid.UUID
 }
 
 type InitScriptFilter struct {
 	AgentID *uuid.UUID
 	McpID   *uuid.UUID
-	HookID  *uuid.UUID
 }
 
 type EnvironmentFilter struct{}
@@ -586,11 +543,6 @@ type McpListResult struct {
 
 type SkillListResult struct {
 	Skills     []Skill
-	NextCursor *PageCursor
-}
-
-type HookListResult struct {
-	Hooks      []Hook
 	NextCursor *PageCursor
 }
 

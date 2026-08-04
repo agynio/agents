@@ -28,7 +28,7 @@ func TestImagePullSecretAttachmentListFilterRefusesAnotherOrganizationsAttachmen
 	if err == nil {
 		t.Fatal("expected a caller from another organization to be refused")
 	}
-	if filter.OrganizationID != nil || filter.ImagePullSecretID != nil || filter.AgentID != nil || filter.McpID != nil || filter.HookID != nil || filter.EnvironmentID != nil {
+	if filter.OrganizationID != nil || filter.ImagePullSecretID != nil || filter.AgentID != nil || filter.McpID != nil || filter.EnvironmentID != nil {
 		t.Fatalf("expected no filter to be returned on refusal, got %#v", filter)
 	}
 	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
@@ -141,7 +141,6 @@ func TestImagePullSecretAttachmentListFilterNarrowsByEveryTarget(t *testing.T) {
 	imagePullSecretID := uuid.New()
 	agentID := uuid.New()
 	mcpID := uuid.New()
-	hookID := uuid.New()
 	environmentID := uuid.New()
 
 	filter, err := server.imagePullSecretAttachmentListFilter(identityContext(uuid.New()), &agentsv1.ListImagePullSecretAttachmentsRequest{
@@ -149,7 +148,6 @@ func TestImagePullSecretAttachmentListFilterNarrowsByEveryTarget(t *testing.T) {
 		ImagePullSecretId: imagePullSecretID.String(),
 		AgentId:           agentID.String(),
 		McpId:             mcpID.String(),
-		HookId:            hookID.String(),
 		EnvironmentId:     environmentID.String(),
 	})
 	if err != nil {
@@ -160,7 +158,6 @@ func TestImagePullSecretAttachmentListFilterNarrowsByEveryTarget(t *testing.T) {
 		"image pull secret": {filter.ImagePullSecretID, &imagePullSecretID},
 		"agent":             {filter.AgentID, &agentID},
 		"mcp":               {filter.McpID, &mcpID},
-		"hook":              {filter.HookID, &hookID},
 		"environment":       {filter.EnvironmentID, &environmentID},
 	} {
 		if pair[0] == nil || *pair[0] != *pair[1] {
