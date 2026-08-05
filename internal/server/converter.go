@@ -93,35 +93,7 @@ func toProtoVolumeAttachment(attachment store.VolumeAttachment) *agentsv1.Volume
 		protoAttachment.Target = &agentsv1.VolumeAttachment_McpId{McpId: attachment.McpID.String()}
 		return protoAttachment
 	}
-	if attachment.HookID != nil {
-		protoAttachment.Target = &agentsv1.VolumeAttachment_HookId{HookId: attachment.HookID.String()}
-		return protoAttachment
-	}
 	panic("volume attachment missing target")
-}
-
-func toProtoImagePullSecretAttachment(attachment store.ImagePullSecretAttachment) *agentsv1.ImagePullSecretAttachment {
-	protoAttachment := &agentsv1.ImagePullSecretAttachment{
-		Meta:              toProtoEntityMeta(attachment.Meta),
-		ImagePullSecretId: attachment.ImagePullSecretID.String(),
-	}
-	if attachment.AgentID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_AgentId{AgentId: attachment.AgentID.String()}
-		return protoAttachment
-	}
-	if attachment.McpID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_McpId{McpId: attachment.McpID.String()}
-		return protoAttachment
-	}
-	if attachment.HookID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_HookId{HookId: attachment.HookID.String()}
-		return protoAttachment
-	}
-	if attachment.EnvironmentID != nil {
-		protoAttachment.Target = &agentsv1.ImagePullSecretAttachment_EnvironmentId{EnvironmentId: attachment.EnvironmentID.String()}
-		return protoAttachment
-	}
-	panic("image pull secret attachment missing target")
 }
 
 func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
@@ -140,6 +112,14 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 	// runner plus flavor name.
 	if environment.FlavorID != nil {
 		proto.FlavorId = environment.FlavorID.String()
+	}
+	if environment.WorkspaceImageID != nil {
+		proto.WorkspaceImageId = environment.WorkspaceImageID.String()
+		proto.WorkspaceImageTag = environment.WorkspaceImageTag
+	}
+	if environment.AgentRuntimeImageID != nil {
+		proto.AgentRuntimeImageId = environment.AgentRuntimeImageID.String()
+		proto.AgentRuntimeImageTag = environment.AgentRuntimeImageTag
 	}
 	return proto
 }
@@ -167,7 +147,7 @@ func toProtoSandbox(sandbox store.Sandbox) *agentsv1.Sandbox {
 }
 
 func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
-	return &agentsv1.Mcp{
+	proto := &agentsv1.Mcp{
 		Meta:        toProtoEntityMeta(mcp.Meta),
 		AgentId:     mcp.AgentID.String(),
 		Name:        mcp.Name,
@@ -176,6 +156,11 @@ func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
 		Resources:   toProtoComputeResources(mcp.Resources),
 		Description: mcp.Description,
 	}
+	if mcp.ImageID != nil {
+		proto.ImageId = mcp.ImageID.String()
+		proto.ImageTag = mcp.ImageTag
+	}
+	return proto
 }
 
 func toProtoSkill(skill store.Skill) *agentsv1.Skill {
@@ -185,18 +170,6 @@ func toProtoSkill(skill store.Skill) *agentsv1.Skill {
 		Name:        skill.Name,
 		Body:        skill.Body,
 		Description: skill.Description,
-	}
-}
-
-func toProtoHook(hook store.Hook) *agentsv1.Hook {
-	return &agentsv1.Hook{
-		Meta:        toProtoEntityMeta(hook.Meta),
-		AgentId:     hook.AgentID.String(),
-		Event:       hook.Event,
-		Function:    hook.Function,
-		Image:       hook.Image,
-		Resources:   toProtoComputeResources(hook.Resources),
-		Description: hook.Description,
 	}
 }
 
@@ -210,8 +183,6 @@ func toProtoEnv(env store.Env) *agentsv1.Env {
 		protoEnv.Target = &agentsv1.Env_AgentId{AgentId: env.AgentID.String()}
 	} else if env.McpID != nil {
 		protoEnv.Target = &agentsv1.Env_McpId{McpId: env.McpID.String()}
-	} else if env.HookID != nil {
-		protoEnv.Target = &agentsv1.Env_HookId{HookId: env.HookID.String()}
 	} else if env.EnvironmentID != nil {
 		protoEnv.Target = &agentsv1.Env_EnvironmentId{EnvironmentId: env.EnvironmentID.String()}
 	} else {
@@ -241,10 +212,6 @@ func toProtoInitScript(script store.InitScript) *agentsv1.InitScript {
 	}
 	if script.McpID != nil {
 		protoScript.Target = &agentsv1.InitScript_McpId{McpId: script.McpID.String()}
-		return protoScript
-	}
-	if script.HookID != nil {
-		protoScript.Target = &agentsv1.InitScript_HookId{HookId: script.HookID.String()}
 		return protoScript
 	}
 	panic("init script missing target")

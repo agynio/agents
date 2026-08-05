@@ -11,6 +11,7 @@ import (
 	"regexp"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
+	imagesv1 "github.com/agynio/agents/.gen/go/agynio/api/images/v1"
 	"github.com/agynio/agents/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -42,18 +43,48 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err := validateSandboxName(req.GetName()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
 	}
-	if req.GetImage() == "" {
-		return nil, status.Error(codes.InvalidArgument, "image is required")
+	workspace, err := parseImageReference(req.GetWorkspaceImageId(), req.GetWorkspaceImageTag(), "workspace_image")
+	if err != nil {
+		return nil, err
 	}
+	agentRuntime, err := parseImageReference(req.GetAgentRuntimeImageId(), req.GetAgentRuntimeImageTag(), "agent_runtime_image")
+	if err != nil {
+		return nil, err
+	}
+	// Either a catalog workspace image or the free-form one, until the
+	// free-form field goes. An environment with neither names nothing to run.
+	if workspace == nil && req.GetImage() == "" {
+		return nil, status.Error(codes.InvalidArgument, "workspace_image_id or image is required")
+	}
+	if workspace != nil {
+		if err := s.validateImageReference(ctx, *workspace, organizationID, imagesv1.ImageType_IMAGE_TYPE_WORKSPACE, "workspace_image"); err != nil {
+			return nil, err
+		}
+	}
+	if agentRuntime != nil {
+		if err := s.validateImageReference(ctx, *agentRuntime, organizationID, imagesv1.ImageType_IMAGE_TYPE_AGENT_RUNTIME, "agent_runtime_image"); err != nil {
+			return nil, err
+		}
+	}
+
 	// The flavor name is deliberately not checked against the runner's catalog:
 	// it is resolved at workload start so an environment and the runner
 	// configuration naming its flavor can be applied in either order.
-	environment, err := s.store.CreateEnvironment(ctx, organizationID, store.EnvironmentInput{
+	input := store.EnvironmentInput{
 		Name:     req.GetName(),
 		Image:    req.GetImage(),
 		RunnerID: &runnerID,
 		Flavor:   req.GetFlavor(),
-	})
+	}
+	if workspace != nil {
+		input.WorkspaceImageID = &workspace.ImageID
+		input.WorkspaceImageTag = workspace.Tag
+	}
+	if agentRuntime != nil {
+		input.AgentRuntimeImageID = &agentRuntime.ImageID
+		input.AgentRuntimeImageTag = agentRuntime.Tag
+	}
+	environment, err := s.store.CreateEnvironment(ctx, organizationID, input)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
@@ -77,7 +108,9 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil {
+	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil &&
+		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
+		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	update := store.EnvironmentUpdate{}
@@ -98,6 +131,9 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if req.Flavor != nil {
 		flavor := req.GetFlavor()
 		update.Flavor = &flavor
+	}
+	if err := s.applyEnvironmentImageUpdate(ctx, req, id, &update); err != nil {
+		return nil, err
 	}
 	if req.Image != nil {
 		image := req.GetImage()
@@ -242,21 +278,30 @@ func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesR
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-	organizationID, err := parseUUID(req.GetOrganizationId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-	}
-	// The Agents Orchestrator lists an organization's sandboxes to reconcile
-	// them and carries no identity, by design — it holds no OpenFGA tuples and
-	// reaches this RPC over the mesh rather than the Gateway. A caller that does
-	// present an identity is a user request and is filtered and checked as one.
+	// The Agents Orchestrator lists sandboxes to reconcile them and carries no
+	// identity, by design — it holds no OpenFGA tuples and reaches this RPC over
+	// the mesh rather than the Gateway. It may also name no organization, and
+	// then reconciles every one: deriving that set any other way leaves a
+	// sandbox in an organization it has not heard of never started. A caller
+	// that does present an identity is a user request, must name an
+	// organization, and is filtered and checked as one.
 	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var organizationID *uuid.UUID
+	if raw := req.GetOrganizationId(); raw != "" {
+		parsed, parseErr := parseUUID(raw)
+		if parseErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", parseErr)
+		}
+		organizationID = &parsed
+	} else if hasIdentity {
+		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
 	var filter store.SandboxFilter
 	if hasIdentity {
-		filter, err = s.sandboxListFilter(ctx, req, organizationID, identityID)
+		filter, err = s.sandboxListFilter(ctx, req, *organizationID, identityID)
 		if err != nil {
 			return nil, err
 		}

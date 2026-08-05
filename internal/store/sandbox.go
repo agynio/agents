@@ -12,14 +12,20 @@ import (
 
 func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID, input EnvironmentInput) (Environment, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO environments (organization_id, name, image, runner_id, flavor)
-		 VALUES ($1, $2, $3, $4, $5)
+		fmt.Sprintf(`INSERT INTO environments
+		 (organization_id, name, image, runner_id, flavor,
+		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING %s`, environmentColumns),
 		organizationID,
 		input.Name,
 		input.Image,
 		input.RunnerID,
 		input.Flavor,
+		input.WorkspaceImageID,
+		input.WorkspaceImageTag,
+		input.AgentRuntimeImageID,
+		input.AgentRuntimeImageTag,
 	)
 	environment, err := scanEnvironment(row)
 	if err != nil {
@@ -60,6 +66,18 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 	}
 	if update.Flavor != nil {
 		builder.add("flavor", *update.Flavor)
+	}
+	if update.WorkspaceImageID != nil {
+		builder.add("workspace_image_id", *update.WorkspaceImageID)
+	}
+	if update.WorkspaceImageTag != nil {
+		builder.add("workspace_image_tag", *update.WorkspaceImageTag)
+	}
+	if update.AgentRuntimeImageID != nil {
+		builder.add("agent_runtime_image_id", *update.AgentRuntimeImageID)
+	}
+	if update.AgentRuntimeImageTag != nil {
+		builder.add("agent_runtime_image_tag", *update.AgentRuntimeImageTag)
 	}
 	if builder.empty() {
 		return Environment{}, fmt.Errorf("environment update requires at least one field")
@@ -216,9 +234,16 @@ func (s *Store) DeleteSandboxRecord(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (s *Store) ListSandboxes(ctx context.Context, organizationID uuid.UUID, filter SandboxFilter, pageSize int32, cursor *PageCursor) (SandboxListResult, error) {
-	clauses := []string{"organization_id = $1"}
-	args := []any{organizationID}
+// A nil organization lists every organization's sandboxes. Only the
+// Orchestrator asks for that: it reconciles sandboxes wherever they are, and
+// deriving the set of organizations any other way means one it has not heard of
+// is never reconciled at all.
+func (s *Store) ListSandboxes(ctx context.Context, organizationID *uuid.UUID, filter SandboxFilter, pageSize int32, cursor *PageCursor) (SandboxListResult, error) {
+	clauses := []string{}
+	args := []any{}
+	if organizationID != nil {
+		clauses, args = appendClause(clauses, args, "organization_id = $%d", *organizationID)
+	}
 	if filter.OwnerID != nil {
 		clauses, args = appendClause(clauses, args, "owner_id = $%d", *filter.OwnerID)
 	}

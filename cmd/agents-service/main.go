@@ -12,6 +12,7 @@ import (
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
+	imagesv1 "github.com/agynio/agents/.gen/go/agynio/api/images/v1"
 	notificationsv1 "github.com/agynio/agents/.gen/go/agynio/api/notifications/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -79,6 +80,20 @@ func run() error {
 	notificationsClient := notificationsv1.NewNotificationsServiceClient(notificationsConn)
 
 	agentsService := server.New(store.New(pool), authzClient, identity, notificationsClient)
+
+	// Optional so an install without the catalog still starts: references are
+	// then stored unvalidated and resolved at workload start, as before.
+	if cfg.ImagesGRPCTarget != "" {
+		imagesConn, err := grpc.NewClient(cfg.ImagesGRPCTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("dial images: %w", err)
+		}
+		defer func() {
+			_ = imagesConn.Close()
+		}()
+		agentsService.WithImages(imagesv1.NewImagesServiceClient(imagesConn))
+	}
+
 	agentsv1.RegisterAgentsServiceServer(grpcServer, agentsService)
 
 	// Instances whose class sets an idle limit are paused once they pass it.

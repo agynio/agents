@@ -12,6 +12,12 @@ type Config struct {
 	AuthorizationServiceAddress string
 	IdentityServiceAddress      string
 	NotificationsServiceAddress string
+	// Optional: without it, image references are stored unvalidated.
+	//
+	// Named GRPC_TARGET rather than SERVICE_ADDRESS deliberately: Kubernetes
+	// injects IMAGES_SERVICE_HOST and IMAGES_SERVICE_PORT for the images
+	// Service, and a third IMAGES_SERVICE_* would read as one of them.
+	ImagesGRPCTarget string
 	// How often idle instances are swept. Configurable mainly so a test
 	// deployment can watch the sweep without waiting a minute for it.
 	InstanceIdleGCInterval time.Duration
@@ -43,6 +49,7 @@ func FromEnv() (Config, error) {
 	if cfg.IdentityServiceAddress == "" {
 		cfg.IdentityServiceAddress = "identity:50051"
 	}
+	cfg.ImagesGRPCTarget = os.Getenv("IMAGES_GRPC_TARGET")
 	cfg.NotificationsServiceAddress = os.Getenv("NOTIFICATIONS_SERVICE_ADDRESS")
 	if cfg.NotificationsServiceAddress == "" {
 		cfg.NotificationsServiceAddress = "notifications:50051"

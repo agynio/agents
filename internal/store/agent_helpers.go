@@ -33,15 +33,12 @@ func touchAgentsUpdatedAt(ctx context.Context, tx pgx.Tx, agentIDs []uuid.UUID) 
 	return nil
 }
 
-func resolveAgentID(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID) (uuid.UUID, error) {
+func resolveAgentID(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID) (uuid.UUID, error) {
 	if agentID != nil {
 		return *agentID, nil
 	}
 	if mcpID != nil {
 		return agentIDForMcp(ctx, tx, *mcpID)
-	}
-	if hookID != nil {
-		return agentIDForHook(ctx, tx, *hookID)
 	}
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
 }
@@ -49,11 +46,11 @@ func resolveAgentID(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *u
 // touchTargetAgent marks the agent a row belongs to as updated so the agent's
 // workload is reassembled. A row targeting an environment belongs to no agent:
 // an environment is an organization's, and there is nothing to touch.
-func touchTargetAgent(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) error {
+func touchTargetAgent(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) error {
 	if environmentID != nil {
 		return nil
 	}
-	resolvedAgentID, err := resolveAgentID(ctx, tx, agentID, mcpID, hookID)
+	resolvedAgentID, err := resolveAgentID(ctx, tx, agentID, mcpID)
 	if err != nil {
 		return err
 	}
@@ -61,13 +58,13 @@ func touchTargetAgent(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID 
 }
 
 // organizationIDForTarget reports the organization a target belongs to. An
-// agent and an environment hold one directly; an mcp and a hook reach it
+// agent and an environment hold one directly; an mcp reaches it
 // through their agent.
-func organizationIDForTarget(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, hookID *uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
+func organizationIDForTarget(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
 	if environmentID != nil {
 		return organizationIDForEnvironment(ctx, tx, *environmentID)
 	}
-	resolvedAgentID, err := resolveAgentID(ctx, tx, agentID, mcpID, hookID)
+	resolvedAgentID, err := resolveAgentID(ctx, tx, agentID, mcpID)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
@@ -110,24 +107,11 @@ func agentIDForMcp(ctx context.Context, tx pgx.Tx, mcpID uuid.UUID) (uuid.UUID, 
 	return agentID, nil
 }
 
-func agentIDForHook(ctx context.Context, tx pgx.Tx, hookID uuid.UUID) (uuid.UUID, error) {
-	var agentID uuid.UUID
-	row := tx.QueryRow(ctx, "SELECT agent_id FROM hooks WHERE id = $1", hookID)
-	if err := row.Scan(&agentID); err != nil {
-		if err == pgx.ErrNoRows {
-			return uuid.UUID{}, NotFound("hook")
-		}
-		return uuid.UUID{}, err
-	}
-	return agentID, nil
-}
-
 func agentIDsForVolume(ctx context.Context, queryer agentIDQueryer, volumeID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := queryer.Query(ctx,
 		`SELECT DISTINCT COALESCE(va.agent_id, mcps.agent_id, hooks.agent_id)
 FROM volume_attachments va
 LEFT JOIN mcps ON va.mcp_id = mcps.id
-LEFT JOIN hooks ON va.hook_id = hooks.id
 WHERE va.volume_id = $1`,
 		volumeID,
 	)
