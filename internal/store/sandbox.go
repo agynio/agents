@@ -234,9 +234,16 @@ func (s *Store) DeleteSandboxRecord(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (s *Store) ListSandboxes(ctx context.Context, organizationID uuid.UUID, filter SandboxFilter, pageSize int32, cursor *PageCursor) (SandboxListResult, error) {
-	clauses := []string{"organization_id = $1"}
-	args := []any{organizationID}
+// A nil organization lists every organization's sandboxes. Only the
+// Orchestrator asks for that: it reconciles sandboxes wherever they are, and
+// deriving the set of organizations any other way means one it has not heard of
+// is never reconciled at all.
+func (s *Store) ListSandboxes(ctx context.Context, organizationID *uuid.UUID, filter SandboxFilter, pageSize int32, cursor *PageCursor) (SandboxListResult, error) {
+	clauses := []string{}
+	args := []any{}
+	if organizationID != nil {
+		clauses, args = appendClause(clauses, args, "organization_id = $%d", *organizationID)
+	}
 	if filter.OwnerID != nil {
 		clauses, args = appendClause(clauses, args, "owner_id = $%d", *filter.OwnerID)
 	}

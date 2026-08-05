@@ -278,21 +278,30 @@ func (s *Server) ListSandboxes(ctx context.Context, req *agentsv1.ListSandboxesR
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-	organizationID, err := parseUUID(req.GetOrganizationId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-	}
-	// The Agents Orchestrator lists an organization's sandboxes to reconcile
-	// them and carries no identity, by design — it holds no OpenFGA tuples and
-	// reaches this RPC over the mesh rather than the Gateway. A caller that does
-	// present an identity is a user request and is filtered and checked as one.
+	// The Agents Orchestrator lists sandboxes to reconcile them and carries no
+	// identity, by design — it holds no OpenFGA tuples and reaches this RPC over
+	// the mesh rather than the Gateway. It may also name no organization, and
+	// then reconciles every one: deriving that set any other way leaves a
+	// sandbox in an organization it has not heard of never started. A caller
+	// that does present an identity is a user request, must name an
+	// organization, and is filtered and checked as one.
 	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var organizationID *uuid.UUID
+	if raw := req.GetOrganizationId(); raw != "" {
+		parsed, parseErr := parseUUID(raw)
+		if parseErr != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", parseErr)
+		}
+		organizationID = &parsed
+	} else if hasIdentity {
+		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
 	var filter store.SandboxFilter
 	if hasIdentity {
-		filter, err = s.sandboxListFilter(ctx, req, organizationID, identityID)
+		filter, err = s.sandboxListFilter(ctx, req, *organizationID, identityID)
 		if err != nil {
 			return nil, err
 		}
