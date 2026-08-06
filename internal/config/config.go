@@ -50,6 +50,9 @@ func FromEnv() (Config, error) {
 		cfg.IdentityServiceAddress = "identity:50051"
 	}
 	cfg.ImagesGRPCTarget = os.Getenv("IMAGES_GRPC_TARGET")
+	if cfg.ImagesGRPCTarget == "" {
+		cfg.ImagesGRPCTarget = "images:50051"
+	}
 	cfg.NotificationsServiceAddress = os.Getenv("NOTIFICATIONS_SERVICE_ADDRESS")
 	if cfg.NotificationsServiceAddress == "" {
 		cfg.NotificationsServiceAddress = "notifications:50051"
