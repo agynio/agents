@@ -109,7 +109,7 @@ func agentIDForMcp(ctx context.Context, tx pgx.Tx, mcpID uuid.UUID) (uuid.UUID, 
 
 func agentIDsForVolume(ctx context.Context, queryer agentIDQueryer, volumeID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := queryer.Query(ctx,
-		`SELECT DISTINCT COALESCE(va.agent_id, mcps.agent_id, hooks.agent_id)
+		`SELECT DISTINCT COALESCE(va.agent_id, mcps.agent_id)
 FROM volume_attachments va
 LEFT JOIN mcps ON va.mcp_id = mcps.id
 WHERE va.volume_id = $1`,

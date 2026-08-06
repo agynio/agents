@@ -22,7 +22,6 @@ const (
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
 	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
-	hookColumns                      = `id, agent_id, event, "function", image, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, created_at, updated_at`
 	envColumns                       = `id, organization_id, name, description, agent_id, mcp_id, environment_id, value, secret_id, created_at, updated_at`
 	initScriptColumns                = `id, script, description, agent_id, mcp_id, created_at, updated_at`
 )
@@ -693,7 +692,7 @@ func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachme
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (VolumeAttachment, error) {
 		row := tx.QueryRow(ctx,
 			fmt.Sprintf(`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id)
-		 VALUES ($1, $2, $3, $4)
+		 VALUES ($1, $2, $3)
 		 RETURNING %s`, volumeAttachmentColumns),
 			input.VolumeID,
 			input.AgentID,
@@ -1060,8 +1059,8 @@ func (s *Store) CreateEnv(ctx context.Context, input EnvInput) (Env, error) {
 			return Env{}, err
 		}
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO envs (organization_id, name, description, agent_id, mcp_id, hook_id, environment_id, value, secret_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			fmt.Sprintf(`INSERT INTO envs (organization_id, name, description, agent_id, mcp_id, environment_id, value, secret_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		 RETURNING %s`, envColumns),
 			organizationID,
 			input.Name,
@@ -1194,8 +1193,8 @@ func (s *Store) ListEnvs(ctx context.Context, filter EnvFilter, pageSize int32, 
 func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (InitScript, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (InitScript, error) {
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO init_scripts (script, description, agent_id, mcp_id, hook_id)
-		 VALUES ($1, $2, $3, $4, $5)
+			fmt.Sprintf(`INSERT INTO init_scripts (script, description, agent_id, mcp_id)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING %s`, initScriptColumns),
 			input.Script,
 			input.Description,
