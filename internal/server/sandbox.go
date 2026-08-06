@@ -36,6 +36,13 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
+	creatorID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireOrganizationMember(ctx, creatorID, organizationID); err != nil {
+		return nil, err
+	}
 	runnerID, err := parseUUID(req.GetRunnerId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
@@ -100,6 +107,9 @@ func (s *Server) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmen
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireEnvironmentRead(ctx, environment); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
 
@@ -112,6 +122,13 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
 		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+	existing, err := s.store.GetEnvironment(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireEnvironmentWrite(ctx, existing); err != nil {
+		return nil, err
 	}
 	update := store.EnvironmentUpdate{}
 	if req.Name != nil {
@@ -153,6 +170,13 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvi
 	id, err := parseUUID(req.GetId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
+	}
+	existing, err := s.store.GetEnvironment(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireEnvironmentWrite(ctx, existing); err != nil {
+		return nil, err
 	}
 	if err := s.store.DeleteEnvironment(ctx, id); err != nil {
 		return nil, toStatusError(err)

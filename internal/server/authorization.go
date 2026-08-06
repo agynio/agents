@@ -93,6 +93,25 @@ func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uui
 	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }
 
+// requireEnvironmentRead authorizes reading one environment. An identified
+// caller must be a member of its organization; an internal caller holds no
+// tuples and is served, as the Orchestrator reads environments while assembling
+// workloads.
+func (s *Server) requireEnvironmentRead(ctx context.Context, environment store.Environment) error {
+	return s.requireOrganizationListAccess(ctx, environment.OrganizationID)
+}
+
+// requireEnvironmentWrite authorizes changing or deleting one environment. These
+// RPCs have no internal callers, so an identity is required rather than
+// optional.
+func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.Environment) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.requireOrganizationMember(ctx, identityID, environment.OrganizationID)
+}
+
 // requireOwnSandboxListing authorizes listing the caller's own sandboxes.
 //
 // Membership is the ordinary route. A cluster admin is not a member of every
