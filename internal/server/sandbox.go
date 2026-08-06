@@ -19,10 +19,8 @@ import (
 )
 
 const (
-	maxSandboxNameLength      = 63
-	defaultSandboxIdleTimeout = "30m"
-	defaultSandboxTTL         = "72h"
-	maxGeneratedNameAttempts  = 8
+	maxSandboxNameLength     = 63
+	maxGeneratedNameAttempts = 8
 )
 
 var (
@@ -197,17 +195,17 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 		}
 		requestedName = &name
 	}
-	if err := validateDurationString(defaultSandboxIdleTimeout); err != nil {
-		return nil, status.Errorf(codes.Internal, "default sandbox idle_timeout: %v", err)
-	}
-	if err := validateDurationString(defaultSandboxTTL); err != nil {
-		return nil, status.Errorf(codes.Internal, "default sandbox ttl: %v", err)
-	}
 	ownerID, err := identityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.requireOrganizationRelation(ctx, ownerID, organizationID, "can_create_sandbox"); err != nil {
+		return nil, err
+	}
+	// Snapshotted onto the sandbox: later changes to the organization's settings
+	// leave a live sandbox on the values it started with, as TTL already was.
+	lifecycle, err := s.resolveSandboxLifecycle(ctx, organizationID, req.IdleTimeout)
+	if err != nil {
 		return nil, err
 	}
 
@@ -218,11 +216,11 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 			EnvironmentID: environmentID,
 			OwnerID:       ownerID,
 			Status:        store.SandboxStatusStarting,
-			IdleTimeout:   defaultSandboxIdleTimeout,
-			TTL:           defaultSandboxTTL,
+			IdleTimeout:   lifecycle.IdleTimeout,
+			TTL:           lifecycle.TTL,
 		})
 	} else {
-		sandbox, err = s.createSandboxWithGeneratedName(ctx, organizationID, environmentID, ownerID)
+		sandbox, err = s.createSandboxWithGeneratedName(ctx, organizationID, environmentID, ownerID, lifecycle)
 	}
 	if err != nil {
 		return nil, toStatusError(err)
@@ -472,15 +470,15 @@ func (s *Server) UpdateSandboxLastSession(ctx context.Context, req *agentsv1.Upd
 	return &agentsv1.UpdateSandboxLastSessionResponse{Sandbox: toProtoSandbox(sandbox)}, nil
 }
 
-func (s *Server) createSandboxWithGeneratedName(ctx context.Context, organizationID uuid.UUID, environmentID uuid.UUID, ownerID uuid.UUID) (store.Sandbox, error) {
+func (s *Server) createSandboxWithGeneratedName(ctx context.Context, organizationID uuid.UUID, environmentID uuid.UUID, ownerID uuid.UUID, lifecycle sandboxLifecycle) (store.Sandbox, error) {
 	create := func(name string) (store.Sandbox, error) {
 		return s.store.CreateSandbox(ctx, organizationID, store.SandboxInput{
 			Name:          name,
 			EnvironmentID: environmentID,
 			OwnerID:       ownerID,
 			Status:        store.SandboxStatusStarting,
-			IdleTimeout:   defaultSandboxIdleTimeout,
-			TTL:           defaultSandboxTTL,
+			IdleTimeout:   lifecycle.IdleTimeout,
+			TTL:           lifecycle.TTL,
 		})
 	}
 	return createSandboxWithGeneratedName(maxGeneratedNameAttempts, generateSandboxName, create)
