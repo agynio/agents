@@ -1474,6 +1474,7 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 			return nil, err
 		}
 		filter.EnvironmentID = &environmentID
+		hasFilter = true
 	}
 	if req.GetAgentId() != "" {
 		hasFilter = true

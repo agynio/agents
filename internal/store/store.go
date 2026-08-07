@@ -146,7 +146,6 @@ func scanVolume(row pgx.Row) (Volume, error) {
 	return volume, nil
 }
 
-
 func scanEnvironment(row pgx.Row) (Environment, error) {
 	var environment Environment
 	if err := row.Scan(
@@ -650,6 +649,9 @@ func (s *Store) ListVolumes(ctx context.Context, organizationID uuid.UUID, filte
 	if filter.McpID != nil {
 		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
 	}
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
+	}
 	volumes, nextCursor, err := listEntities(ctx, s.pool,
 		fmt.Sprintf("SELECT %s FROM volumes", volumeColumns),
 		clauses,
@@ -669,9 +671,12 @@ func (s *Store) ListAgentIDsForVolume(ctx context.Context, volumeID uuid.UUID) (
 	return agentIDsForVolume(ctx, s.pool, volumeID)
 }
 
-
-
-
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
 
 func (s *Store) CreateMcp(ctx context.Context, organizationID uuid.UUID, input McpInput) (Mcp, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (Mcp, error) {
@@ -682,7 +687,9 @@ func (s *Store) CreateMcp(ctx context.Context, organizationID uuid.UUID, input M
 			organizationID,
 			input.AgentID,
 			input.EnvironmentID,
-			input.SharedVolumes,
+			// A nil slice reaches Postgres as NULL rather than taking the
+			// column default, and most MCPs share nothing.
+			nonNilStrings(input.SharedVolumes),
 			input.Name,
 			input.Image,
 			input.Command,
@@ -803,6 +810,9 @@ func (s *Store) ListMcps(ctx context.Context, filter McpFilter, pageSize int32, 
 	args := []any{}
 	if filter.AgentID != nil {
 		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
 	}
 
 	mcps, nextCursor, err := listEntities(ctx, s.pool,
