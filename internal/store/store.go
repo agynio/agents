@@ -573,6 +573,17 @@ func (s *Store) CreateVolume(ctx context.Context, organizationID uuid.UUID, inpu
 	)
 	volume, err := scanVolume(row)
 	if err != nil {
+		// A name or path already used in this target is the caller's mistake,
+		// not an internal failure, and saying which is the whole point.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return Volume{}, AlreadyExists("volume")
+			case "23503":
+				return Volume{}, ForeignKeyViolation("volume")
+			}
+		}
 		return Volume{}, err
 	}
 	return volume, nil
