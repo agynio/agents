@@ -24,6 +24,30 @@ func touchAgentUpdatedAt(ctx context.Context, tx pgx.Tx, agentID uuid.UUID) erro
 	return nil
 }
 
+// touchEnvironmentUpdatedAt propagates a sub-resource write to its environment,
+// which is what the Orchestrator's start decision compares against.
+func touchEnvironmentUpdatedAt(ctx context.Context, tx pgx.Tx, environmentID uuid.UUID) error {
+	result, err := tx.Exec(ctx, "UPDATE environments SET updated_at = NOW() WHERE id = $1", environmentID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("environment")
+	}
+	return nil
+}
+
+// touchTargetUpdatedAt touches whichever owner a sub-resource names.
+func touchTargetUpdatedAt(ctx context.Context, tx pgx.Tx, agentID *uuid.UUID, environmentID *uuid.UUID) error {
+	if agentID != nil {
+		return touchAgentUpdatedAt(ctx, tx, *agentID)
+	}
+	if environmentID != nil {
+		return touchEnvironmentUpdatedAt(ctx, tx, *environmentID)
+	}
+	return nil
+}
+
 func touchAgentsUpdatedAt(ctx context.Context, tx pgx.Tx, agentIDs []uuid.UUID) error {
 	for _, agentID := range agentIDs {
 		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {

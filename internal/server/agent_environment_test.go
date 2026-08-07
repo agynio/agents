@@ -53,6 +53,7 @@ func createTestEnvironment(ctx context.Context, t *testing.T, server *Server, or
 		Name:           name,
 		Image:          "ghcr.io/agynio/environment:latest",
 		Flavor:         "small",
+		Availability:   agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_INTERNAL,
 	})
 	if err != nil {
 		t.Fatalf("create environment: %v", err)

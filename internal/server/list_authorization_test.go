@@ -42,16 +42,6 @@ func listRPCs() []listRPC {
 			},
 		},
 		{
-			name: "ListVolumes",
-			call: func(server *Server, ctx context.Context, organizationID string) error {
-				_, err := server.ListVolumes(ctx, &agentsv1.ListVolumesRequest{
-					OrganizationId: organizationID,
-					PageToken:      undecodablePageToken,
-				})
-				return err
-			},
-		},
-		{
 			name: "ListEnvironments",
 			call: func(server *Server, ctx context.Context, organizationID string) error {
 				_, err := server.ListEnvironments(ctx, &agentsv1.ListEnvironmentsRequest{

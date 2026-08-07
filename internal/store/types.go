@@ -74,6 +74,27 @@ const (
 	AgentAvailabilityPrivate  AgentAvailability = "private"
 )
 
+type EnvironmentAvailability string
+
+const (
+	EnvironmentAvailabilityInternal EnvironmentAvailability = "internal"
+	EnvironmentAvailabilityPrivate  EnvironmentAvailability = "private"
+)
+
+type EnvironmentRole string
+
+const (
+	EnvironmentRoleOwner      EnvironmentRole = "owner"
+	EnvironmentRoleMaintainer EnvironmentRole = "maintainer"
+	EnvironmentRoleUser       EnvironmentRole = "user"
+)
+
+type EnvironmentRoleAssignment struct {
+	EnvironmentID uuid.UUID
+	IdentityID    uuid.UUID
+	Role          EnvironmentRole
+}
+
 type AgentRole string
 
 const (
@@ -180,28 +201,27 @@ type InboxItemListResult struct {
 type Volume struct {
 	Meta           EntityMeta
 	OrganizationID uuid.UUID
-	Persistent     bool
+	EnvironmentID  *uuid.UUID
+	McpID          *uuid.UUID
+	Name           string
 	MountPath      string
-	Size           string
-	Description    string
+	Persistent     bool
+	Size           *string
+	StorageClass   *string
 	TTL            *string
 }
 
-type VolumeAttachment struct {
-	Meta     EntityMeta
-	VolumeID uuid.UUID
-	AgentID  *uuid.UUID
-	McpID    *uuid.UUID
-}
-
 type Mcp struct {
-	Meta        EntityMeta
-	AgentID     uuid.UUID
-	Name        string
-	Image       string
-	Command     string
-	Resources   ComputeResources
-	Description string
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	AgentID        *uuid.UUID
+	EnvironmentID  *uuid.UUID
+	SharedVolumes  []string
+	Name           string
+	Image          string
+	Command        string
+	Resources      ComputeResources
+	Description    string
 	// The catalog record this sidecar runs, superseding Image.
 	ImageID  *uuid.UUID
 	ImageTag string
@@ -247,6 +267,7 @@ type Environment struct {
 	WorkspaceImageTag    string
 	AgentRuntimeImageID  *uuid.UUID
 	AgentRuntimeImageTag string
+	Availability         EnvironmentAvailability
 }
 
 type Sandbox struct {
@@ -264,11 +285,14 @@ type Sandbox struct {
 }
 
 type InitScript struct {
-	Meta        EntityMeta
-	Script      string
-	Description string
-	AgentID     *uuid.UUID
-	McpID       *uuid.UUID
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Script         string
+	Description    string
+	Name           string
+	AgentID        *uuid.UUID
+	McpID          *uuid.UUID
+	EnvironmentID  *uuid.UUID
 }
 
 type AgentInput struct {
@@ -313,45 +337,51 @@ type AgentUpdate struct {
 }
 
 type VolumeInput struct {
-	Persistent  bool
-	MountPath   string
-	Size        string
-	Description string
-	TTL         *string
+	EnvironmentID *uuid.UUID
+	McpID         *uuid.UUID
+	Name          string
+	MountPath     string
+	Persistent    bool
+	Size          *string
+	StorageClass  *string
+	TTL           *string
 }
 
 type VolumeUpdate struct {
-	Persistent  *bool
-	MountPath   *string
-	Size        *string
-	Description *string
-	TTL         *string
+	Name         *string
+	MountPath    *string
+	Persistent   *bool
+	Size         **string
+	StorageClass **string
+	TTL          **string
 }
 
-type VolumeAttachmentInput struct {
-	VolumeID uuid.UUID
-	AgentID  *uuid.UUID
-	McpID    *uuid.UUID
+type VolumeFilter struct {
+	EnvironmentID *uuid.UUID
+	McpID         *uuid.UUID
 }
 
 type McpInput struct {
-	AgentID     uuid.UUID
-	Name        string
-	Image       string
-	Command     string
-	Resources   ComputeResources
-	Description string
-	ImageID     *uuid.UUID
-	ImageTag    string
+	AgentID       *uuid.UUID
+	EnvironmentID *uuid.UUID
+	SharedVolumes []string
+	Name          string
+	Image         string
+	Command       string
+	Resources     ComputeResources
+	Description   string
+	ImageID       *uuid.UUID
+	ImageTag      string
 }
 
 type McpUpdate struct {
-	Image       *string
-	Command     *string
-	Resources   *ComputeResources
-	Description *string
-	ImageID     **uuid.UUID
-	ImageTag    *string
+	SharedVolumes *[]string
+	Image         *string
+	Command       *string
+	Resources     *ComputeResources
+	Description   *string
+	ImageID       **uuid.UUID
+	ImageTag      *string
 }
 
 type SkillInput struct {
@@ -385,10 +415,12 @@ type EnvUpdate struct {
 }
 
 type InitScriptInput struct {
-	Script      string
-	Description string
-	AgentID     *uuid.UUID
-	McpID       *uuid.UUID
+	Script        string
+	Description   string
+	Name          string
+	AgentID       *uuid.UUID
+	McpID         *uuid.UUID
+	EnvironmentID *uuid.UUID
 }
 
 type InitScriptUpdate struct {
@@ -397,6 +429,7 @@ type InitScriptUpdate struct {
 }
 
 type EnvironmentInput struct {
+	Availability         EnvironmentAvailability
 	Name                 string
 	Image                string
 	RunnerID             *uuid.UUID
@@ -408,10 +441,11 @@ type EnvironmentInput struct {
 }
 
 type EnvironmentUpdate struct {
-	Name     *string
-	Image    *string
-	RunnerID *uuid.UUID
-	Flavor   *string
+	Availability *EnvironmentAvailability
+	Name         *string
+	Image        *string
+	RunnerID     *uuid.UUID
+	Flavor       *string
 	// Double pointers: the outer says the caller named the field, the inner
 	// says what to set. Clearing the agent runtime pair is how an environment
 	// becomes workspace-only.
@@ -439,16 +473,9 @@ type SandboxUpdate struct {
 
 type AgentFilter struct{}
 
-type VolumeFilter struct{}
-
-type VolumeAttachmentFilter struct {
-	VolumeID *uuid.UUID
-	AgentID  *uuid.UUID
-	McpID    *uuid.UUID
-}
-
 type McpFilter struct {
-	AgentID *uuid.UUID
+	AgentID       *uuid.UUID
+	EnvironmentID *uuid.UUID
 }
 
 type SkillFilter struct {
@@ -467,8 +494,9 @@ type EnvFilter struct {
 }
 
 type InitScriptFilter struct {
-	AgentID *uuid.UUID
-	McpID   *uuid.UUID
+	AgentID       *uuid.UUID
+	McpID         *uuid.UUID
+	EnvironmentID *uuid.UUID
 }
 
 type EnvironmentFilter struct{}
@@ -495,11 +523,6 @@ type AgentListResult struct {
 type VolumeListResult struct {
 	Volumes    []Volume
 	NextCursor *PageCursor
-}
-
-type VolumeAttachmentListResult struct {
-	VolumeAttachments []VolumeAttachment
-	NextCursor        *PageCursor
 }
 
 type McpListResult struct {

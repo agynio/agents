@@ -108,6 +108,10 @@ func run() error {
 
 	agentsv1.RegisterAgentsServiceServer(grpcServer, agentsService)
 
+	// Environments predating the environment authorization type carry no tuples,
+	// so every check against them refuses. Idempotent, and runs before serving.
+	agentsService.BackfillEnvironmentAuthorization(ctx)
+
 	// Instances whose class sets an idle limit are paused once they pass it.
 	// Started before Serve so a service that never receives a request still
 	// reclaims what earlier runs left behind.

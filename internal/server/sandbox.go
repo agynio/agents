@@ -38,12 +38,18 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireOrganizationMember(ctx, creatorID, organizationID); err != nil {
+	if err := s.requireOrganizationRelation(ctx, creatorID, organizationID, "can_create_environment"); err != nil {
 		return nil, err
 	}
 	runnerID, err := parseUUID(req.GetRunnerId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
+	}
+	// Required, with no default: running in an environment reaches its secrets,
+	// so who may do so is the author's decision to state.
+	availability, err := environmentAvailabilityFromProto(req.GetAvailability())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "availability: %v", err)
 	}
 	if err := validateSandboxName(req.GetName()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
@@ -76,10 +82,11 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	// it is resolved at workload start so an environment and the runner
 	// configuration naming its flavor can be applied in either order.
 	input := store.EnvironmentInput{
-		Name:     req.GetName(),
-		Image:    req.GetImage(),
-		RunnerID: &runnerID,
-		Flavor:   req.GetFlavor(),
+		Availability: availability,
+		Name:         req.GetName(),
+		Image:        req.GetImage(),
+		RunnerID:     &runnerID,
+		Flavor:       req.GetFlavor(),
 	}
 	if workspace != nil {
 		input.WorkspaceImageID = &workspace.ImageID
@@ -92,6 +99,14 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	environment, err := s.store.CreateEnvironment(ctx, organizationID, input)
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	// The creator becomes the owner. A failure here would leave an environment
+	// nobody can reach, so the record is rolled back with it.
+	if err := s.addEnvironmentAuthorization(ctx, environment.Meta.ID, organizationID, creatorID, availability); err != nil {
+		if rollbackErr := s.store.DeleteEnvironment(ctx, environment.Meta.ID); rollbackErr != nil {
+			return nil, status.Errorf(codes.Internal, "authorization failed: %v; rollback failed: %v", err, rollbackErr)
+		}
+		return nil, err
 	}
 	return &agentsv1.CreateEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
@@ -118,7 +133,7 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	}
 	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil &&
 		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
-		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil {
+		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil && req.Availability == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	existing, err := s.store.GetEnvironment(ctx, id)
@@ -147,6 +162,13 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 		flavor := req.GetFlavor()
 		update.Flavor = &flavor
 	}
+	if req.Availability != nil {
+		availability, err := environmentAvailabilityFromProto(req.GetAvailability())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "availability: %v", err)
+		}
+		update.Availability = &availability
+	}
 	if err := s.applyEnvironmentImageUpdate(ctx, req, id, &update); err != nil {
 		return nil, err
 	}
@@ -161,6 +183,12 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if update.Availability != nil {
+		if err := s.updateEnvironmentAvailabilityAuthorization(ctx, environment.Meta.ID, environment.OrganizationID, existing.Availability, *update.Availability); err != nil {
+			return nil, err
+		}
+	}
+	s.publishEnvironmentUpdated(ctx, environment.Meta.ID, environment.OrganizationID)
 	return &agentsv1.UpdateEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
 
@@ -176,8 +204,15 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvi
 	if err := s.requireEnvironmentWrite(ctx, existing); err != nil {
 		return nil, err
 	}
+	roles, err := s.store.ListEnvironmentRoles(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
 	if err := s.store.DeleteEnvironment(ctx, id); err != nil {
 		return nil, toStatusError(err)
+	}
+	if err := s.removeEnvironmentAuthorization(ctx, id, existing.OrganizationID, roles, existing.Availability); err != nil {
+		return nil, err
 	}
 	return &agentsv1.DeleteEnvironmentResponse{}, nil
 }
@@ -224,6 +259,9 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 		return nil, err
 	}
 	if err := s.requireOrganizationRelation(ctx, ownerID, organizationID, "can_create_sandbox"); err != nil {
+		return nil, err
+	}
+	if err := s.requireEnvironmentUse(ctx, environmentID); err != nil {
 		return nil, err
 	}
 	// Snapshotted onto the sandbox: later changes to the organization's settings

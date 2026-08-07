@@ -45,10 +45,11 @@ func seedEnvironment(ctx context.Context, t *testing.T, backing *store.Store, or
 	t.Helper()
 	runnerID := uuid.New()
 	environment, err := backing.CreateEnvironment(ctx, organizationID, store.EnvironmentInput{
-		Name:     name,
-		Image:    "ghcr.io/agynio/environment:latest",
-		RunnerID: &runnerID,
-		Flavor:   "small",
+		Name:         name,
+		Image:        "ghcr.io/agynio/environment:latest",
+		RunnerID:     &runnerID,
+		Flavor:       "small",
+		Availability: store.EnvironmentAvailabilityPrivate,
 	})
 	if err != nil {
 		t.Fatalf("seed environment: %v", err)
@@ -104,6 +105,9 @@ func TestEnvironmentRPCsRefuseAnotherOrganization(t *testing.T) {
 	}
 }
 
+// Membership shows an environment exists; changing it is a grant on the
+// environment itself. A member holding no role gets the metadata and nothing
+// more, which is what keeps one team from renaming another's environment.
 func TestEnvironmentRPCsServeAMember(t *testing.T) {
 	ctx := context.Background()
 	member := uuid.New()
@@ -119,15 +123,21 @@ func TestEnvironmentRPCsServeAMember(t *testing.T) {
 		t.Fatalf("GetEnvironment refused a member: %v", err)
 	}
 	name := "renamed"
+	if _, err := server.UpdateEnvironment(callerCtx, &agentsv1.UpdateEnvironmentRequest{Id: environmentID.String(), Name: &name}); err == nil {
+		t.Fatal("UpdateEnvironment served a member holding no role on the environment")
+	}
+
+	// With the role, the same caller edits and deletes it.
+	authz.allowedObjects[environmentPrefix+environmentID.String()] = true
 	updated, err := server.UpdateEnvironment(callerCtx, &agentsv1.UpdateEnvironmentRequest{Id: environmentID.String(), Name: &name})
 	if err != nil {
-		t.Fatalf("UpdateEnvironment refused a member: %v", err)
+		t.Fatalf("UpdateEnvironment refused a role holder: %v", err)
 	}
 	if updated.GetEnvironment().GetName() != name {
 		t.Fatalf("expected the name to be %q, got %q", name, updated.GetEnvironment().GetName())
 	}
 	if _, err := server.DeleteEnvironment(callerCtx, &agentsv1.DeleteEnvironmentRequest{Id: environmentID.String()}); err != nil {
-		t.Fatalf("DeleteEnvironment refused a member: %v", err)
+		t.Fatalf("DeleteEnvironment refused a role holder: %v", err)
 	}
 }
 

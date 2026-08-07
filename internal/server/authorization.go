@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 
 	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
 	"github.com/agynio/agents/internal/store"
@@ -17,6 +18,7 @@ const (
 	agentPrefix         = "agent:"
 	agentInstancePrefix = "agent_instance:"
 	sandboxPrefix       = "sandbox:"
+	environmentPrefix   = "environment:"
 )
 
 type AuthorizationWriter interface {
@@ -89,10 +91,6 @@ func (s *Server) requireOrganizationListAccess(ctx context.Context, organization
 	return s.requireOrganizationMember(ctx, identityID, organizationID)
 }
 
-func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
-	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
-}
-
 // requireEnvironmentRead authorizes reading one environment. An identified
 // caller must be a member of its organization; an internal caller holds no
 // tuples and is served, as the Orchestrator reads environments while assembling
@@ -101,15 +99,158 @@ func (s *Server) requireEnvironmentRead(ctx context.Context, environment store.E
 	return s.requireOrganizationListAccess(ctx, environment.OrganizationID)
 }
 
-// requireEnvironmentWrite authorizes changing or deleting one environment. These
-// RPCs have no internal callers, so an identity is required rather than
-// optional.
+// requireEnvironmentConfigRead authorizes reading what an environment contains,
+// as distinct from its metadata: the volumes, servers, scripts and variables a
+// workload there carries. An internal caller holds no tuples and is served, as
+// the Orchestrator reads all of it while assembling workloads.
+func (s *Server) requireEnvironmentConfigRead(ctx context.Context, environmentID uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	return s.requireEnvironmentRelation(ctx, identityID, environmentID, "can_read_config")
+}
+
+// requireEnvironmentWrite authorizes changing an environment or anything it
+// owns. These RPCs have no internal callers, so an identity is required.
 func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.Environment) error {
 	identityID, err := identityUUIDFromContext(ctx)
 	if err != nil {
 		return err
 	}
-	return s.requireOrganizationMember(ctx, identityID, environment.OrganizationID)
+	return s.requireEnvironmentRelation(ctx, identityID, environment.Meta.ID, "can_edit_config")
+}
+
+// requireEnvironmentUse gates running a workload in an environment. A shell in
+// a sandbox there reaches the environment's secrets, egress credentials and
+// volume contents, so this is a grant rather than a consequence of visibility.
+func (s *Server) requireEnvironmentUse(ctx context.Context, environmentID uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	return s.requireEnvironmentRelation(ctx, identityID, environmentID, "can_use")
+}
+
+func environmentOrganizationTuple(environmentID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     organizationPrefix + organizationID.String(),
+		Relation: "org",
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func environmentInternalAccessTuple(environmentID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     organizationPrefix + organizationID.String(),
+		Relation: "internal_access",
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func environmentRoleTuple(environmentID uuid.UUID, identityID uuid.UUID, role store.EnvironmentRole) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + identityID.String(),
+		Relation: string(role),
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func (s *Server) addEnvironmentAuthorization(ctx context.Context, environmentID, organizationID, creatorID uuid.UUID, availability store.EnvironmentAvailability) error {
+	writes := []*authorizationv1.TupleKey{
+		environmentOrganizationTuple(environmentID, organizationID),
+		environmentRoleTuple(environmentID, creatorID, store.EnvironmentRoleOwner),
+	}
+	if availability == store.EnvironmentAvailabilityInternal {
+		writes = append(writes, environmentInternalAccessTuple(environmentID, organizationID))
+	}
+	return s.writeAuthorization(ctx, writes, nil)
+}
+
+// addEnvironmentBaseAuthorization writes what an environment needs to resolve
+// at all, without an owner. Used by the backfill, where no creator is recorded.
+//
+// OpenFGA refuses to write a tuple that already exists, and refuses the whole
+// batch when one of them does, so each is written on its own and an existing one
+// counts as success. Writing them together would mean an environment holding the
+// org tuple but not internal_access could never gain the second.
+func (s *Server) addEnvironmentBaseAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, availability store.EnvironmentAvailability) error {
+	tuples := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
+	if availability == store.EnvironmentAvailabilityInternal {
+		tuples = append(tuples, environmentInternalAccessTuple(environmentID, organizationID))
+	}
+	for _, tuple := range tuples {
+		if err := s.writeAuthorization(ctx, []*authorizationv1.TupleKey{tuple}, nil); err != nil {
+			if isTupleAlreadyExists(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// isTupleAlreadyExists reports the write OpenFGA refuses because the tuple is
+// already there, which for a repair pass is the desired end state.
+func isTupleAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "already exists") ||
+		strings.Contains(message, "write_failed_due_to_invalid_input")
+}
+
+func (s *Server) removeEnvironmentAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, roles []store.EnvironmentRoleAssignment, availability store.EnvironmentAvailability) error {
+	deletes := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
+	if availability == store.EnvironmentAvailabilityInternal {
+		deletes = append(deletes, environmentInternalAccessTuple(environmentID, organizationID))
+	}
+	for _, role := range roles {
+		deletes = append(deletes, environmentRoleTuple(environmentID, role.IdentityID, role.Role))
+	}
+	return s.writeAuthorization(ctx, nil, deletes)
+}
+
+func (s *Server) updateEnvironmentAvailabilityAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, previous, next store.EnvironmentAvailability) error {
+	if previous == next {
+		return nil
+	}
+	tuple := environmentInternalAccessTuple(environmentID, organizationID)
+	if next == store.EnvironmentAvailabilityInternal {
+		return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{tuple}, nil)
+	}
+	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{tuple})
+}
+
+func (s *Server) updateEnvironmentRoleAuthorization(ctx context.Context, environmentID, identityID uuid.UUID, previous *store.EnvironmentRole, next store.EnvironmentRole) error {
+	var deletes []*authorizationv1.TupleKey
+	if previous != nil {
+		if *previous == next {
+			return nil
+		}
+		deletes = append(deletes, environmentRoleTuple(environmentID, identityID, *previous))
+	}
+	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{environmentRoleTuple(environmentID, identityID, next)}, deletes)
+}
+
+func (s *Server) removeEnvironmentRoleAuthorization(ctx context.Context, environmentID, identityID uuid.UUID, role store.EnvironmentRole) error {
+	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{environmentRoleTuple(environmentID, identityID, role)})
+}
+
+func (s *Server) requireEnvironmentRelation(ctx context.Context, identityID uuid.UUID, environmentID uuid.UUID, relation string) error {
+	return s.requireAllowed(ctx, identityID, relation, environmentPrefix+environmentID.String(),
+		status.Errorf(codes.PermissionDenied, "identity lacks %s on environment", relation))
+}
+
+func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
+	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }
 
 // requireOwnSandboxListing authorizes listing the caller's own sandboxes.

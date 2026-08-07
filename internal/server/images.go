@@ -244,9 +244,12 @@ func (s *Server) applyMcpImageUpdate(
 		return nil
 	}
 
-	organizationID, err := s.organizationOfAgent(ctx, existing.AgentID)
-	if err != nil {
-		return err
+	organizationID := existing.OrganizationID
+	if existing.AgentID != nil {
+		organizationID, err = s.organizationOfAgent(ctx, *existing.AgentID)
+		if err != nil {
+			return err
+		}
 	}
 	if err := s.validateMcpImage(ctx, *reference, organizationID); err != nil {
 		return err

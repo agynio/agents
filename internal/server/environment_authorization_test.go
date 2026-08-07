@@ -53,18 +53,18 @@ func TestCreateEnvironmentRefusesANonMember(t *testing.T) {
 		t.Fatal("CreateEnvironment accepted an identity holding nothing on the organization")
 	}
 	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
-		{User: identityPrefix + identityID.String(), Relation: "member", Object: organizationPrefix + organizationID.String()},
+		{User: identityPrefix + identityID.String(), Relation: "can_create_environment", Object: organizationPrefix + organizationID.String()},
 	})
 }
 
-func TestCreateEnvironmentChecksMembershipBeforeTheStore(t *testing.T) {
+func TestCreateEnvironmentChecksTheGrantBeforeTheStore(t *testing.T) {
 	organizationID := uuid.New()
 	identityID := uuid.New()
 	authz := &recordingAuthorizationWriter{}
 	server := &Server{authz: authz}
 
-	// The runner id is unparseable, so a caller that survives the membership
-	// check stops there rather than reaching the store this server has none of.
+	// The runner id is unparseable, so a caller that survives the grant check
+	// stops there rather than reaching the store this server has none of.
 	_, err := server.CreateEnvironment(identityContext(identityID), &agentsv1.CreateEnvironmentRequest{
 		OrganizationId: organizationID.String(),
 		RunnerId:       "not-a-uuid",
@@ -75,7 +75,7 @@ func TestCreateEnvironmentChecksMembershipBeforeTheStore(t *testing.T) {
 		t.Fatalf("expected the request to reach runner_id validation, got %v", err)
 	}
 	assertChecks(t, authz.checks, []*authorizationv1.TupleKey{
-		{User: identityPrefix + identityID.String(), Relation: "member", Object: organizationPrefix + organizationID.String()},
+		{User: identityPrefix + identityID.String(), Relation: "can_create_environment", Object: organizationPrefix + organizationID.String()},
 	})
 }
 

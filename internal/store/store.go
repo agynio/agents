@@ -15,15 +15,14 @@ import (
 
 const (
 	agentColumns                     = `id, organization_id, name, nickname, role, model, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, created_at, updated_at`
-	volumeColumns                    = `id, organization_id, persistent, mount_path, size, description, ttl, created_at, updated_at`
-	volumeAttachmentColumns          = `id, volume_id, agent_id, mcp_id, created_at, updated_at`
+	volumeColumns                    = `id, organization_id, environment_id, mcp_id, name, mount_path, persistent, size, storage_class, ttl, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, environment_id, created_at, updated_at`
-	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, created_at, updated_at`
+	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability, created_at, updated_at`
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
-	mcpColumns                       = `id, agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag, created_at, updated_at`
+	mcpColumns                       = `id, organization_id, agent_id, environment_id, shared_volumes, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
 	envColumns                       = `id, organization_id, name, description, agent_id, mcp_id, environment_id, value, secret_id, created_at, updated_at`
-	initScriptColumns                = `id, script, description, agent_id, mcp_id, created_at, updated_at`
+	initScriptColumns                = `id, organization_id, script, description, name, agent_id, mcp_id, environment_id, created_at, updated_at`
 )
 
 type Store struct {
@@ -121,41 +120,30 @@ func scanAgent(row pgx.Row) (Agent, error) {
 
 func scanVolume(row pgx.Row) (Volume, error) {
 	var volume Volume
-	var ttl pgtype.Text
+	var environmentID, mcpID pgtype.UUID
+	var size, storageClass, ttl pgtype.Text
 	if err := row.Scan(
 		&volume.Meta.ID,
 		&volume.OrganizationID,
-		&volume.Persistent,
+		&environmentID,
+		&mcpID,
+		&volume.Name,
 		&volume.MountPath,
-		&volume.Size,
-		&volume.Description,
+		&volume.Persistent,
+		&size,
+		&storageClass,
 		&ttl,
 		&volume.Meta.CreatedAt,
 		&volume.Meta.UpdatedAt,
 	); err != nil {
 		return Volume{}, err
 	}
+	volume.EnvironmentID = uuidPtrFromPg(environmentID)
+	volume.McpID = uuidPtrFromPg(mcpID)
+	volume.Size = stringPtrFromPg(size)
+	volume.StorageClass = stringPtrFromPg(storageClass)
 	volume.TTL = stringPtrFromPg(ttl)
 	return volume, nil
-}
-
-func scanVolumeAttachment(row pgx.Row) (VolumeAttachment, error) {
-	var attachment VolumeAttachment
-	var agentID pgtype.UUID
-	var mcpID pgtype.UUID
-	if err := row.Scan(
-		&attachment.Meta.ID,
-		&attachment.VolumeID,
-		&agentID,
-		&mcpID,
-		&attachment.Meta.CreatedAt,
-		&attachment.Meta.UpdatedAt,
-	); err != nil {
-		return VolumeAttachment{}, err
-	}
-	attachment.AgentID = uuidPtrFromPg(agentID)
-	attachment.McpID = uuidPtrFromPg(mcpID)
-	return attachment, nil
 }
 
 func scanEnvironment(row pgx.Row) (Environment, error) {
@@ -173,6 +161,7 @@ func scanEnvironment(row pgx.Row) (Environment, error) {
 		&environment.WorkspaceImageTag,
 		&environment.AgentRuntimeImageID,
 		&environment.AgentRuntimeImageTag,
+		&environment.Availability,
 		&environment.Meta.CreatedAt,
 		&environment.Meta.UpdatedAt,
 	); err != nil {
@@ -211,9 +200,13 @@ func scanSandbox(row pgx.Row) (Sandbox, error) {
 
 func scanMcp(row pgx.Row) (Mcp, error) {
 	var mcp Mcp
+	var agentID, environmentID, imageID pgtype.UUID
 	if err := row.Scan(
 		&mcp.Meta.ID,
-		&mcp.AgentID,
+		&mcp.OrganizationID,
+		&agentID,
+		&environmentID,
+		&mcp.SharedVolumes,
 		&mcp.Name,
 		&mcp.Image,
 		&mcp.Command,
@@ -222,13 +215,16 @@ func scanMcp(row pgx.Row) (Mcp, error) {
 		&mcp.Resources.LimitsCPU,
 		&mcp.Resources.LimitsMemory,
 		&mcp.Description,
-		&mcp.ImageID,
+		&imageID,
 		&mcp.ImageTag,
 		&mcp.Meta.CreatedAt,
 		&mcp.Meta.UpdatedAt,
 	); err != nil {
 		return Mcp{}, err
 	}
+	mcp.AgentID = uuidPtrFromPg(agentID)
+	mcp.EnvironmentID = uuidPtrFromPg(environmentID)
+	mcp.ImageID = uuidPtrFromPg(imageID)
 	return mcp, nil
 }
 
@@ -280,14 +276,16 @@ func scanEnv(row pgx.Row) (Env, error) {
 
 func scanInitScript(row pgx.Row) (InitScript, error) {
 	var script InitScript
-	var agentID pgtype.UUID
-	var mcpID pgtype.UUID
+	var agentID, mcpID, environmentID pgtype.UUID
 	if err := row.Scan(
 		&script.Meta.ID,
+		&script.OrganizationID,
 		&script.Script,
 		&script.Description,
+		&script.Name,
 		&agentID,
 		&mcpID,
+		&environmentID,
 		&script.Meta.CreatedAt,
 		&script.Meta.UpdatedAt,
 	); err != nil {
@@ -295,6 +293,7 @@ func scanInitScript(row pgx.Row) (InitScript, error) {
 	}
 	script.AgentID = uuidPtrFromPg(agentID)
 	script.McpID = uuidPtrFromPg(mcpID)
+	script.EnvironmentID = uuidPtrFromPg(environmentID)
 	return script, nil
 }
 
@@ -566,18 +565,25 @@ func (s *Store) ListAgents(ctx context.Context, organizationID *uuid.UUID, _ Age
 
 func (s *Store) CreateVolume(ctx context.Context, organizationID uuid.UUID, input VolumeInput) (Volume, error) {
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO volumes (organization_id, persistent, mount_path, size, description, ttl)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		fmt.Sprintf(`INSERT INTO volumes (organization_id, environment_id, mcp_id, name, mount_path, persistent, size, storage_class, ttl)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING %s`, volumeColumns),
-		organizationID,
-		input.Persistent,
-		input.MountPath,
-		input.Size,
-		input.Description,
-		input.TTL,
+		organizationID, input.EnvironmentID, input.McpID, input.Name, input.MountPath,
+		input.Persistent, input.Size, input.StorageClass, input.TTL,
 	)
 	volume, err := scanVolume(row)
 	if err != nil {
+		// A name or path already used in this target is the caller's mistake,
+		// not an internal failure, and saying which is the whole point.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "23505":
+				return Volume{}, AlreadyExists("volume")
+			case "23503":
+				return Volume{}, ForeignKeyViolation("volume")
+			}
+		}
 		return Volume{}, err
 	}
 	return volume, nil
@@ -600,75 +606,63 @@ func (s *Store) GetVolume(ctx context.Context, id uuid.UUID) (Volume, error) {
 
 func (s *Store) UpdateVolume(ctx context.Context, id uuid.UUID, update VolumeUpdate) (Volume, error) {
 	builder := updateBuilder{}
-	if update.Persistent != nil {
-		builder.add("persistent", *update.Persistent)
+	if update.Name != nil {
+		builder.add("name", *update.Name)
 	}
 	if update.MountPath != nil {
 		builder.add("mount_path", *update.MountPath)
 	}
+	if update.Persistent != nil {
+		builder.add("persistent", *update.Persistent)
+	}
 	if update.Size != nil {
 		builder.add("size", *update.Size)
 	}
-	if update.Description != nil {
-		builder.add("description", *update.Description)
+	if update.StorageClass != nil {
+		builder.add("storage_class", *update.StorageClass)
 	}
 	if update.TTL != nil {
 		builder.add("ttl", *update.TTL)
 	}
-
 	if builder.empty() {
 		return Volume{}, fmt.Errorf("volume update requires at least one field")
 	}
-
-	return withTx(ctx, s.pool, func(tx pgx.Tx) (Volume, error) {
-		query, args := builder.build("volumes", volumeColumns, id)
-		row := tx.QueryRow(ctx, query, args...)
-		volume, err := scanVolume(row)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return Volume{}, NotFound("volume")
-			}
-			return Volume{}, err
+	query, args := builder.build("volumes", volumeColumns, id)
+	row := s.pool.QueryRow(ctx, query, args...)
+	volume, err := scanVolume(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Volume{}, NotFound("volume")
 		}
-		agentIDs, err := agentIDsForVolume(ctx, tx, volume.Meta.ID)
-		if err != nil {
-			return Volume{}, err
-		}
-		if err := touchAgentsUpdatedAt(ctx, tx, agentIDs); err != nil {
-			return Volume{}, err
-		}
-		return volume, nil
-	})
+		return Volume{}, err
+	}
+	return volume, nil
 }
 
 func (s *Store) DeleteVolume(ctx context.Context, id uuid.UUID) error {
-	_, err := withTx(ctx, s.pool, func(tx pgx.Tx) (struct{}, error) {
-		agentIDs, err := agentIDsForVolume(ctx, tx, id)
-		if err != nil {
-			return struct{}{}, err
-		}
-		result, err := tx.Exec(ctx, `DELETE FROM volumes WHERE id = $1`, id)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-				return struct{}{}, ForeignKeyViolation("volume")
-			}
-			return struct{}{}, err
-		}
-		if result.RowsAffected() == 0 {
-			return struct{}{}, NotFound("volume")
-		}
-		if err := touchAgentsUpdatedAt(ctx, tx, agentIDs); err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, nil
-	})
-	return err
+	result, err := s.pool.Exec(ctx, `DELETE FROM volumes WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return NotFound("volume")
+	}
+	return nil
 }
 
-func (s *Store) ListVolumes(ctx context.Context, organizationID uuid.UUID, _ VolumeFilter, pageSize int32, cursor *PageCursor) (VolumeListResult, error) {
-	clauses := []string{"organization_id = $1"}
-	args := []any{organizationID}
+func (s *Store) ListVolumes(ctx context.Context, organizationID uuid.UUID, filter VolumeFilter, pageSize int32, cursor *PageCursor) (VolumeListResult, error) {
+	var clauses []string
+	var args []any
+	clauses, args = appendClause(clauses, args, "organization_id = $%d", organizationID)
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
+	}
+	if filter.McpID != nil {
+		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
+	}
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
+	}
 	volumes, nextCursor, err := listEntities(ctx, s.pool,
 		fmt.Sprintf("SELECT %s FROM volumes", volumeColumns),
 		clauses,
@@ -688,115 +682,25 @@ func (s *Store) ListAgentIDsForVolume(ctx context.Context, volumeID uuid.UUID) (
 	return agentIDsForVolume(ctx, s.pool, volumeID)
 }
 
-func (s *Store) CreateVolumeAttachment(ctx context.Context, input VolumeAttachmentInput) (VolumeAttachment, error) {
-	return withTx(ctx, s.pool, func(tx pgx.Tx) (VolumeAttachment, error) {
-		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO volume_attachments (volume_id, agent_id, mcp_id)
-		 VALUES ($1, $2, $3)
-		 RETURNING %s`, volumeAttachmentColumns),
-			input.VolumeID,
-			input.AgentID,
-			input.McpID,
-		)
-		attachment, err := scanVolumeAttachment(row)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) {
-				switch pgErr.Code {
-				case "23505":
-					return VolumeAttachment{}, AlreadyExists("volume attachment")
-				case "23503":
-					return VolumeAttachment{}, ForeignKeyViolation("volume attachment")
-				}
-			}
-			return VolumeAttachment{}, err
-		}
-		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID)
-		if err != nil {
-			return VolumeAttachment{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
-			return VolumeAttachment{}, err
-		}
-		return attachment, nil
-	})
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
-func (s *Store) GetVolumeAttachment(ctx context.Context, id uuid.UUID) (VolumeAttachment, error) {
-	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT %s FROM volume_attachments WHERE id = $1`, volumeAttachmentColumns),
-		id,
-	)
-	attachment, err := scanVolumeAttachment(row)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return VolumeAttachment{}, NotFound("volume attachment")
-		}
-		return VolumeAttachment{}, err
-	}
-	return attachment, nil
-}
-
-func (s *Store) DeleteVolumeAttachment(ctx context.Context, id uuid.UUID) error {
-	_, err := withTx(ctx, s.pool, func(tx pgx.Tx) (struct{}, error) {
-		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`DELETE FROM volume_attachments WHERE id = $1 RETURNING %s`, volumeAttachmentColumns),
-			id,
-		)
-		attachment, err := scanVolumeAttachment(row)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return struct{}{}, NotFound("volume attachment")
-			}
-			return struct{}{}, err
-		}
-		agentID, err := resolveAgentID(ctx, tx, attachment.AgentID, attachment.McpID)
-		if err != nil {
-			return struct{}{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, nil
-	})
-	return err
-}
-
-func (s *Store) ListVolumeAttachments(ctx context.Context, filter VolumeAttachmentFilter, pageSize int32, cursor *PageCursor) (VolumeAttachmentListResult, error) {
-	clauses := []string{}
-	args := []any{}
-	if filter.VolumeID != nil {
-		clauses, args = appendClause(clauses, args, "volume_id = $%d", *filter.VolumeID)
-	}
-	if filter.AgentID != nil {
-		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
-	}
-	if filter.McpID != nil {
-		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
-	}
-
-	attachments, nextCursor, err := listEntities(ctx, s.pool,
-		fmt.Sprintf("SELECT %s FROM volume_attachments", volumeAttachmentColumns),
-		clauses,
-		args,
-		cursor,
-		pageSize,
-		scanVolumeAttachment,
-		func(attachment VolumeAttachment) uuid.UUID { return attachment.Meta.ID },
-	)
-	if err != nil {
-		return VolumeAttachmentListResult{}, err
-	}
-	return VolumeAttachmentListResult{VolumeAttachments: attachments, NextCursor: nextCursor}, nil
-}
-
-func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
+func (s *Store) CreateMcp(ctx context.Context, organizationID uuid.UUID, input McpInput) (Mcp, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (Mcp, error) {
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO mcps (agent_id, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			fmt.Sprintf(`INSERT INTO mcps (organization_id, agent_id, environment_id, shared_volumes, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING %s`, mcpColumns),
+			organizationID,
 			input.AgentID,
+			input.EnvironmentID,
+			// A nil slice reaches Postgres as NULL rather than taking the
+			// column default, and most MCPs share nothing.
+			nonNilStrings(input.SharedVolumes),
 			input.Name,
 			input.Image,
 			input.Command,
@@ -821,7 +725,7 @@ func (s *Store) CreateMcp(ctx context.Context, input McpInput) (Mcp, error) {
 			}
 			return Mcp{}, err
 		}
-		if err := touchAgentUpdatedAt(ctx, tx, mcp.AgentID); err != nil {
+		if err := touchTargetUpdatedAt(ctx, tx, mcp.AgentID, mcp.EnvironmentID); err != nil {
 			return Mcp{}, err
 		}
 		return mcp, nil
@@ -880,7 +784,7 @@ func (s *Store) UpdateMcp(ctx context.Context, id uuid.UUID, update McpUpdate) (
 			}
 			return Mcp{}, err
 		}
-		if err := touchAgentUpdatedAt(ctx, tx, mcp.AgentID); err != nil {
+		if err := touchTargetUpdatedAt(ctx, tx, mcp.AgentID, mcp.EnvironmentID); err != nil {
 			return Mcp{}, err
 		}
 		return mcp, nil
@@ -904,7 +808,7 @@ func (s *Store) DeleteMcp(ctx context.Context, id uuid.UUID) error {
 			}
 			return struct{}{}, err
 		}
-		if err := touchAgentUpdatedAt(ctx, tx, mcp.AgentID); err != nil {
+		if err := touchTargetUpdatedAt(ctx, tx, mcp.AgentID, mcp.EnvironmentID); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
@@ -917,6 +821,9 @@ func (s *Store) ListMcps(ctx context.Context, filter McpFilter, pageSize int32, 
 	args := []any{}
 	if filter.AgentID != nil {
 		clauses, args = appendClause(clauses, args, "agent_id = $%d", *filter.AgentID)
+	}
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
 	}
 
 	mcps, nextCursor, err := listEntities(ctx, s.pool,
@@ -1190,16 +1097,19 @@ func (s *Store) ListEnvs(ctx context.Context, filter EnvFilter, pageSize int32, 
 	return EnvListResult{Envs: envs, NextCursor: nextCursor}, nil
 }
 
-func (s *Store) CreateInitScript(ctx context.Context, input InitScriptInput) (InitScript, error) {
+func (s *Store) CreateInitScript(ctx context.Context, organizationID uuid.UUID, input InitScriptInput) (InitScript, error) {
 	return withTx(ctx, s.pool, func(tx pgx.Tx) (InitScript, error) {
 		row := tx.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO init_scripts (script, description, agent_id, mcp_id)
-		 VALUES ($1, $2, $3, $4)
+			fmt.Sprintf(`INSERT INTO init_scripts (organization_id, script, description, name, agent_id, mcp_id, environment_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING %s`, initScriptColumns),
+			organizationID,
 			input.Script,
 			input.Description,
+			input.Name,
 			input.AgentID,
 			input.McpID,
+			input.EnvironmentID,
 		)
 		script, err := scanInitScript(row)
 		if err != nil {
