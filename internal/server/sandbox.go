@@ -19,10 +19,8 @@ import (
 )
 
 const (
-	maxSandboxNameLength      = 63
-	defaultSandboxIdleTimeout = "30m"
-	defaultSandboxTTL         = "72h"
-	maxGeneratedNameAttempts  = 8
+	maxSandboxNameLength     = 63
+	maxGeneratedNameAttempts = 8
 )
 
 var (
@@ -36,16 +34,16 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	runnerID, err := parseUUID(req.GetRunnerId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
-	}
 	creatorID, err := identityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.requireOrganizationRelation(ctx, creatorID, organizationID, "can_create_environment"); err != nil {
 		return nil, err
+	}
+	runnerID, err := parseUUID(req.GetRunnerId())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 	}
 	// Required, with no default: running in an environment reaches its secrets,
 	// so who may do so is the author's decision to state.
@@ -256,12 +254,6 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 		}
 		requestedName = &name
 	}
-	if err := validateDurationString(defaultSandboxIdleTimeout); err != nil {
-		return nil, status.Errorf(codes.Internal, "default sandbox idle_timeout: %v", err)
-	}
-	if err := validateDurationString(defaultSandboxTTL); err != nil {
-		return nil, status.Errorf(codes.Internal, "default sandbox ttl: %v", err)
-	}
 	ownerID, err := identityUUIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -272,6 +264,12 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 	if err := s.requireEnvironmentUse(ctx, environmentID); err != nil {
 		return nil, err
 	}
+	// Snapshotted onto the sandbox: later changes to the organization's settings
+	// leave a live sandbox on the values it started with, as TTL already was.
+	lifecycle, err := s.resolveSandboxLifecycle(ctx, organizationID, req.IdleTimeout)
+	if err != nil {
+		return nil, err
+	}
 
 	var sandbox store.Sandbox
 	if requestedName != nil {
@@ -280,11 +278,11 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 			EnvironmentID: environmentID,
 			OwnerID:       ownerID,
 			Status:        store.SandboxStatusStarting,
-			IdleTimeout:   defaultSandboxIdleTimeout,
-			TTL:           defaultSandboxTTL,
+			IdleTimeout:   lifecycle.IdleTimeout,
+			TTL:           lifecycle.TTL,
 		})
 	} else {
-		sandbox, err = s.createSandboxWithGeneratedName(ctx, organizationID, environmentID, ownerID)
+		sandbox, err = s.createSandboxWithGeneratedName(ctx, organizationID, environmentID, ownerID, lifecycle)
 	}
 	if err != nil {
 		return nil, toStatusError(err)
@@ -534,15 +532,15 @@ func (s *Server) UpdateSandboxLastSession(ctx context.Context, req *agentsv1.Upd
 	return &agentsv1.UpdateSandboxLastSessionResponse{Sandbox: toProtoSandbox(sandbox)}, nil
 }
 
-func (s *Server) createSandboxWithGeneratedName(ctx context.Context, organizationID uuid.UUID, environmentID uuid.UUID, ownerID uuid.UUID) (store.Sandbox, error) {
+func (s *Server) createSandboxWithGeneratedName(ctx context.Context, organizationID uuid.UUID, environmentID uuid.UUID, ownerID uuid.UUID, lifecycle sandboxLifecycle) (store.Sandbox, error) {
 	create := func(name string) (store.Sandbox, error) {
 		return s.store.CreateSandbox(ctx, organizationID, store.SandboxInput{
 			Name:          name,
 			EnvironmentID: environmentID,
 			OwnerID:       ownerID,
 			Status:        store.SandboxStatusStarting,
-			IdleTimeout:   defaultSandboxIdleTimeout,
-			TTL:           defaultSandboxTTL,
+			IdleTimeout:   lifecycle.IdleTimeout,
+			TTL:           lifecycle.TTL,
 		})
 	}
 	return createSandboxWithGeneratedName(maxGeneratedNameAttempts, generateSandboxName, create)

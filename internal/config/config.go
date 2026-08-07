@@ -18,6 +18,9 @@ type Config struct {
 	// injects IMAGES_SERVICE_HOST and IMAGES_SERVICE_PORT for the images
 	// Service, and a third IMAGES_SERVICE_* would read as one of them.
 	ImagesGRPCTarget string
+	// Read by CreateSandbox for the organization's sandbox lifecycle bounds.
+	// Named GRPC_TARGET for the same reason as the images one.
+	OrganizationsGRPCTarget string
 	// How often idle instances are swept. Configurable mainly so a test
 	// deployment can watch the sweep without waiting a minute for it.
 	InstanceIdleGCInterval time.Duration
@@ -56,6 +59,10 @@ func FromEnv() (Config, error) {
 	cfg.NotificationsServiceAddress = os.Getenv("NOTIFICATIONS_SERVICE_ADDRESS")
 	if cfg.NotificationsServiceAddress == "" {
 		cfg.NotificationsServiceAddress = "notifications:50051"
+	}
+	cfg.OrganizationsGRPCTarget = os.Getenv("ORGANIZATIONS_GRPC_TARGET")
+	if cfg.OrganizationsGRPCTarget == "" {
+		cfg.OrganizationsGRPCTarget = "organizations:50051"
 	}
 	return cfg, nil
 }

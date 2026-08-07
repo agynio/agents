@@ -14,6 +14,7 @@ import (
 	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
 	imagesv1 "github.com/agynio/agents/.gen/go/agynio/api/images/v1"
 	notificationsv1 "github.com/agynio/agents/.gen/go/agynio/api/notifications/v1"
+	organizationsv1 "github.com/agynio/agents/.gen/go/agynio/api/organizations/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -93,6 +94,17 @@ func run() error {
 		}()
 		agentsService.WithImages(imagesv1.NewImagesServiceClient(imagesConn))
 	}
+
+	// Required: CreateSandbox reads the organization's sandbox lifecycle bounds
+	// rather than assuming a platform-wide number.
+	organizationsConn, err := grpc.NewClient(cfg.OrganizationsGRPCTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("dial organizations: %w", err)
+	}
+	defer func() {
+		_ = organizationsConn.Close()
+	}()
+	agentsService.WithOrganizations(organizationsv1.NewOrganizationsServiceClient(organizationsConn))
 
 	agentsv1.RegisterAgentsServiceServer(grpcServer, agentsService)
 

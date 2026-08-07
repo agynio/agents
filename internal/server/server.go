@@ -27,6 +27,13 @@ type Server struct {
 	// Optional: without it, image references are stored unvalidated and the
 	// orchestrator resolves them again at workload start.
 	images ImagesClient
+	// Required by CreateSandbox, which reads the organization's sandbox
+	// lifecycle bounds rather than assuming a platform-wide number.
+	organizations OrganizationsClient
+}
+
+func (s *Server) WithOrganizations(client OrganizationsClient) {
+	s.organizations = client
 }
 
 const (
