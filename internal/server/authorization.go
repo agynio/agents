@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 
 	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
 	"github.com/agynio/agents/internal/store"
@@ -174,12 +175,36 @@ func (s *Server) addEnvironmentAuthorization(ctx context.Context, environmentID,
 
 // addEnvironmentBaseAuthorization writes what an environment needs to resolve
 // at all, without an owner. Used by the backfill, where no creator is recorded.
+//
+// OpenFGA refuses to write a tuple that already exists, and refuses the whole
+// batch when one of them does, so each is written on its own and an existing one
+// counts as success. Writing them together would mean an environment holding the
+// org tuple but not internal_access could never gain the second.
 func (s *Server) addEnvironmentBaseAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, availability store.EnvironmentAvailability) error {
-	writes := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
+	tuples := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
 	if availability == store.EnvironmentAvailabilityInternal {
-		writes = append(writes, environmentInternalAccessTuple(environmentID, organizationID))
+		tuples = append(tuples, environmentInternalAccessTuple(environmentID, organizationID))
 	}
-	return s.writeAuthorization(ctx, writes, nil)
+	for _, tuple := range tuples {
+		if err := s.writeAuthorization(ctx, []*authorizationv1.TupleKey{tuple}, nil); err != nil {
+			if isTupleAlreadyExists(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// isTupleAlreadyExists reports the write OpenFGA refuses because the tuple is
+// already there, which for a repair pass is the desired end state.
+func isTupleAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "already exists") ||
+		strings.Contains(message, "write_failed_due_to_invalid_input")
 }
 
 func (s *Server) removeEnvironmentAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, roles []store.EnvironmentRoleAssignment, availability store.EnvironmentAvailability) error {
