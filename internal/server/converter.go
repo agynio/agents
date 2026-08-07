@@ -150,9 +150,10 @@ func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
 		protoMcp.ImageId = mcp.ImageID.String()
 	}
 	if mcp.EnvironmentID != nil {
-		protoMcp.Target = &agentsv1.Mcp_EnvironmentId{EnvironmentId: mcp.EnvironmentID.String()}
-	} else if mcp.AgentID != nil {
-		protoMcp.Target = &agentsv1.Mcp_AgentId{AgentId: mcp.AgentID.String()}
+		protoMcp.EnvironmentId = mcp.EnvironmentID.String()
+	}
+	if mcp.AgentID != nil {
+		protoMcp.AgentId = mcp.AgentID.String()
 	}
 	return protoMcp
 }

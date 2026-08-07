@@ -17,6 +17,7 @@ const (
 	agentPrefix         = "agent:"
 	agentInstancePrefix = "agent_instance:"
 	sandboxPrefix       = "sandbox:"
+	environmentPrefix   = "environment:"
 )
 
 type AuthorizationWriter interface {
@@ -104,7 +105,98 @@ func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.
 	if err != nil {
 		return err
 	}
-	return s.requireOrganizationMember(ctx, identityID, environment.OrganizationID)
+	return s.requireEnvironmentRelation(ctx, identityID, environment.Meta.ID, "can_edit_config")
+}
+
+// requireEnvironmentUse gates running a workload in an environment. A shell in
+// a sandbox there reaches the environment's secrets, egress credentials and
+// volume contents, so this is a grant rather than a consequence of visibility.
+func (s *Server) requireEnvironmentUse(ctx context.Context, environmentID uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	return s.requireEnvironmentRelation(ctx, identityID, environmentID, "can_use")
+}
+
+func environmentOrganizationTuple(environmentID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     organizationPrefix + organizationID.String(),
+		Relation: "org",
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func environmentInternalAccessTuple(environmentID uuid.UUID, organizationID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     organizationPrefix + organizationID.String(),
+		Relation: "internal_access",
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func environmentRoleTuple(environmentID uuid.UUID, identityID uuid.UUID, role store.EnvironmentRole) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + identityID.String(),
+		Relation: string(role),
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func (s *Server) addEnvironmentAuthorization(ctx context.Context, environmentID, organizationID, creatorID uuid.UUID, availability store.EnvironmentAvailability) error {
+	writes := []*authorizationv1.TupleKey{
+		environmentOrganizationTuple(environmentID, organizationID),
+		environmentRoleTuple(environmentID, creatorID, store.EnvironmentRoleOwner),
+	}
+	if availability == store.EnvironmentAvailabilityInternal {
+		writes = append(writes, environmentInternalAccessTuple(environmentID, organizationID))
+	}
+	return s.writeAuthorization(ctx, writes, nil)
+}
+
+func (s *Server) removeEnvironmentAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, roles []store.EnvironmentRoleAssignment, availability store.EnvironmentAvailability) error {
+	deletes := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
+	if availability == store.EnvironmentAvailabilityInternal {
+		deletes = append(deletes, environmentInternalAccessTuple(environmentID, organizationID))
+	}
+	for _, role := range roles {
+		deletes = append(deletes, environmentRoleTuple(environmentID, role.IdentityID, role.Role))
+	}
+	return s.writeAuthorization(ctx, nil, deletes)
+}
+
+func (s *Server) updateEnvironmentAvailabilityAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, previous, next store.EnvironmentAvailability) error {
+	if previous == next {
+		return nil
+	}
+	tuple := environmentInternalAccessTuple(environmentID, organizationID)
+	if next == store.EnvironmentAvailabilityInternal {
+		return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{tuple}, nil)
+	}
+	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{tuple})
+}
+
+func (s *Server) updateEnvironmentRoleAuthorization(ctx context.Context, environmentID, identityID uuid.UUID, previous *store.EnvironmentRole, next store.EnvironmentRole) error {
+	var deletes []*authorizationv1.TupleKey
+	if previous != nil {
+		if *previous == next {
+			return nil
+		}
+		deletes = append(deletes, environmentRoleTuple(environmentID, identityID, *previous))
+	}
+	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{environmentRoleTuple(environmentID, identityID, next)}, deletes)
+}
+
+func (s *Server) removeEnvironmentRoleAuthorization(ctx context.Context, environmentID, identityID uuid.UUID, role store.EnvironmentRole) error {
+	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{environmentRoleTuple(environmentID, identityID, role)})
+}
+
+func (s *Server) requireEnvironmentRelation(ctx context.Context, identityID uuid.UUID, environmentID uuid.UUID, relation string) error {
+	return s.requireAllowed(ctx, identityID, relation, environmentPrefix+environmentID.String(),
+		status.Errorf(codes.PermissionDenied, "identity lacks %s on environment", relation))
 }
 
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {

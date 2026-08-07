@@ -40,6 +40,13 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 	}
+	creatorID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireOrganizationRelation(ctx, creatorID, organizationID, "can_create_environment"); err != nil {
+		return nil, err
+	}
 	// Required, with no default: running in an environment reaches its secrets,
 	// so who may do so is the author's decision to state.
 	availability, err := environmentAvailabilityFromProto(req.GetAvailability())
@@ -95,6 +102,14 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	// The creator becomes the owner. A failure here would leave an environment
+	// nobody can reach, so the record is rolled back with it.
+	if err := s.addEnvironmentAuthorization(ctx, environment.Meta.ID, organizationID, creatorID, availability); err != nil {
+		if rollbackErr := s.store.DeleteEnvironment(ctx, environment.Meta.ID); rollbackErr != nil {
+			return nil, status.Errorf(codes.Internal, "authorization failed: %v; rollback failed: %v", err, rollbackErr)
+		}
+		return nil, err
+	}
 	return &agentsv1.CreateEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
 
@@ -106,6 +121,9 @@ func (s *Server) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmen
 	environment, err := s.store.GetEnvironment(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	if err := s.requireEnvironmentRead(ctx, environment); err != nil {
+		return nil, err
 	}
 	return &agentsv1.GetEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
@@ -119,6 +137,13 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
 		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil && req.Availability == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+	existing, err := s.store.GetEnvironment(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireEnvironmentWrite(ctx, existing); err != nil {
+		return nil, err
 	}
 	update := store.EnvironmentUpdate{}
 	if req.Name != nil {
@@ -160,6 +185,12 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if update.Availability != nil {
+		if err := s.updateEnvironmentAvailabilityAuthorization(ctx, environment.Meta.ID, environment.OrganizationID, existing.Availability, *update.Availability); err != nil {
+			return nil, err
+		}
+	}
+	s.publishEnvironmentUpdated(ctx, environment.Meta.ID, environment.OrganizationID)
 	return &agentsv1.UpdateEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
 
@@ -168,8 +199,21 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
+	existing, err := s.store.GetEnvironment(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireEnvironmentWrite(ctx, existing); err != nil {
+		return nil, err
+	}
+	// Role tuples are not enumerated here: the role API that would record them
+	// is not implemented yet, so the only one is the creator's owner tuple.
+	var roles []store.EnvironmentRoleAssignment
 	if err := s.store.DeleteEnvironment(ctx, id); err != nil {
 		return nil, toStatusError(err)
+	}
+	if err := s.removeEnvironmentAuthorization(ctx, id, existing.OrganizationID, roles, existing.Availability); err != nil {
+		return nil, err
 	}
 	return &agentsv1.DeleteEnvironmentResponse{}, nil
 }
@@ -222,6 +266,9 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 		return nil, err
 	}
 	if err := s.requireOrganizationRelation(ctx, ownerID, organizationID, "can_create_sandbox"); err != nil {
+		return nil, err
+	}
+	if err := s.requireEnvironmentUse(ctx, environmentID); err != nil {
 		return nil, err
 	}
 
