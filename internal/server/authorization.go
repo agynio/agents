@@ -89,6 +89,24 @@ func (s *Server) requireOrganizationListAccess(ctx context.Context, organization
 	return s.requireOrganizationMember(ctx, identityID, organizationID)
 }
 
+// requireEnvironmentRead authorizes reading one environment. An identified
+// caller must be a member of its organization; an internal caller holds no
+// tuples and is served, as the Orchestrator reads environments while assembling
+// workloads.
+func (s *Server) requireEnvironmentRead(ctx context.Context, environment store.Environment) error {
+	return s.requireOrganizationListAccess(ctx, environment.OrganizationID)
+}
+
+// requireEnvironmentWrite authorizes changing an environment or anything it
+// owns. These RPCs have no internal callers, so an identity is required.
+func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.Environment) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.requireOrganizationMember(ctx, identityID, environment.OrganizationID)
+}
+
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
 	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }

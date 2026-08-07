@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	agentUpdatedEvent   = "agent.updated"
-	sandboxUpdatedEvent = "sandbox.updated"
+	agentUpdatedEvent       = "agent.updated"
+	environmentUpdatedEvent = "environment.updated"
+	sandboxUpdatedEvent     = "sandbox.updated"
 )
 
 func (s *Server) publishAgentUpdated(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) {
@@ -34,6 +35,37 @@ func (s *Server) publishAgentUpdated(ctx context.Context, agentID uuid.UUID, org
 	})
 	if err != nil {
 		log.Printf("agents: publish agent.updated: %v", err)
+	}
+}
+
+// publishEnvironmentUpdated announces a change to an environment or anything it
+// owns, on one room. Every agent and sandbox running the environment is
+// affected, so fanning this out per referencing agent would be the wrong shape.
+func (s *Server) publishEnvironmentUpdated(ctx context.Context, environmentID uuid.UUID, organizationID uuid.UUID) {
+	payload, err := structpb.NewStruct(map[string]any{
+		"environment_id":  environmentID.String(),
+		"organization_id": organizationID.String(),
+	})
+	if err != nil {
+		log.Printf("agents: build environment.updated payload: %v", err)
+		return
+	}
+	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
+		Event:   environmentUpdatedEvent,
+		Rooms:   []string{fmt.Sprintf("environment:%s", environmentID)},
+		Payload: payload,
+		Source:  "agents",
+	})
+	if err != nil {
+		log.Printf("agents: publish environment.updated: %v", err)
+	}
+}
+
+// publishVolumeTargetUpdated announces a volume write to whichever owner it
+// names.
+func (s *Server) publishVolumeTargetUpdated(ctx context.Context, volume store.Volume) {
+	if volume.EnvironmentID != nil {
+		s.publishEnvironmentUpdated(ctx, *volume.EnvironmentID, volume.OrganizationID)
 	}
 }
 
@@ -92,7 +124,10 @@ func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *
 		if err != nil {
 			return uuid.UUID{}, err
 		}
-		return mcp.AgentID, nil
+		if mcp.AgentID == nil {
+			return uuid.UUID{}, fmt.Errorf("mcp %s targets an environment", mcp.Meta.ID)
+		}
+		return *mcp.AgentID, nil
 	}
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
 }
@@ -113,6 +148,12 @@ func (s *Server) publishAgentUpdatedForVolume(ctx context.Context, volumeID uuid
 // an environment belongs to an organization — and there is nothing to notify.
 func (s *Server) publishAgentUpdatedForConfigTarget(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) {
 	if environmentID != nil {
+		environment, err := s.store.GetEnvironment(ctx, *environmentID)
+		if err != nil {
+			log.Printf("agents: fetch environment for notification: %v", err)
+			return
+		}
+		s.publishEnvironmentUpdated(ctx, environment.Meta.ID, environment.OrganizationID)
 		return
 	}
 	s.publishAgentUpdatedForTarget(ctx, agentID, mcpID)

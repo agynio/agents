@@ -21,17 +21,18 @@ import (
 
 func TestToProtoVolumeIncludesTTL(t *testing.T) {
 	ttl := "24h"
+	size := "1Gi"
 	volume := store.Volume{
 		Meta: store.EntityMeta{
 			ID:        uuid.New(),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		},
-		Persistent:  true,
-		MountPath:   "/data",
-		Size:        "1Gi",
-		Description: "volume",
-		TTL:         &ttl,
+		Persistent: true,
+		MountPath:  "/data",
+		Name:       "data",
+		Size:       &size,
+		TTL:        &ttl,
 	}
 
 	protoVolume := toProtoVolume(volume)
@@ -44,16 +45,17 @@ func TestToProtoVolumeIncludesTTL(t *testing.T) {
 }
 
 func TestToProtoVolumeOmitsTTLWhenNil(t *testing.T) {
+	size := "1Gi"
 	volume := store.Volume{
 		Meta: store.EntityMeta{
 			ID:        uuid.New(),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		},
-		Persistent:  true,
-		MountPath:   "/data",
-		Size:        "1Gi",
-		Description: "volume",
+		Persistent: true,
+		MountPath:  "/data",
+		Name:       "data",
+		Size:       &size,
 	}
 
 	protoVolume := toProtoVolume(volume)

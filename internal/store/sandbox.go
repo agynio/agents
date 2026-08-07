@@ -14,8 +14,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 	row := s.pool.QueryRow(ctx,
 		fmt.Sprintf(`INSERT INTO environments
 		 (organization_id, name, image, runner_id, flavor,
-		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING %s`, environmentColumns),
 		organizationID,
 		input.Name,
@@ -26,6 +26,7 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 		input.WorkspaceImageTag,
 		input.AgentRuntimeImageID,
 		input.AgentRuntimeImageTag,
+		input.Availability,
 	)
 	environment, err := scanEnvironment(row)
 	if err != nil {
@@ -57,6 +58,9 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 	builder := updateBuilder{}
 	if update.Name != nil {
 		builder.add("name", *update.Name)
+	}
+	if update.Availability != nil {
+		builder.add("availability", string(*update.Availability))
 	}
 	if update.Image != nil {
 		builder.add("image", *update.Image)

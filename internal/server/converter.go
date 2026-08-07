@@ -66,34 +66,23 @@ func toProtoAgentRoleAssignment(assignment store.AgentRoleAssignment) *agentsv1.
 }
 
 func toProtoVolume(volume store.Volume) *agentsv1.Volume {
-	// TODO: Populate OrganizationId once included in Volume response proto.
 	protoVolume := &agentsv1.Volume{
-		Meta:        toProtoEntityMeta(volume.Meta),
-		Persistent:  volume.Persistent,
-		MountPath:   volume.MountPath,
-		Size:        volume.Size,
-		Description: volume.Description,
+		Meta:       toProtoEntityMeta(volume.Meta),
+		Name:       volume.Name,
+		MountPath:  volume.MountPath,
+		Persistent: volume.Persistent,
 	}
-	if volume.TTL != nil {
-		protoVolume.Ttl = volume.TTL
+	if volume.Size != nil {
+		protoVolume.Size = *volume.Size
+	}
+	protoVolume.StorageClass = volume.StorageClass
+	protoVolume.Ttl = volume.TTL
+	if volume.EnvironmentID != nil {
+		protoVolume.Target = &agentsv1.Volume_EnvironmentId{EnvironmentId: volume.EnvironmentID.String()}
+	} else if volume.McpID != nil {
+		protoVolume.Target = &agentsv1.Volume_McpId{McpId: volume.McpID.String()}
 	}
 	return protoVolume
-}
-
-func toProtoVolumeAttachment(attachment store.VolumeAttachment) *agentsv1.VolumeAttachment {
-	protoAttachment := &agentsv1.VolumeAttachment{
-		Meta:     toProtoEntityMeta(attachment.Meta),
-		VolumeId: attachment.VolumeID.String(),
-	}
-	if attachment.AgentID != nil {
-		protoAttachment.Target = &agentsv1.VolumeAttachment_AgentId{AgentId: attachment.AgentID.String()}
-		return protoAttachment
-	}
-	if attachment.McpID != nil {
-		protoAttachment.Target = &agentsv1.VolumeAttachment_McpId{McpId: attachment.McpID.String()}
-		return protoAttachment
-	}
-	panic("volume attachment missing target")
 }
 
 func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
@@ -147,20 +136,25 @@ func toProtoSandbox(sandbox store.Sandbox) *agentsv1.Sandbox {
 }
 
 func toProtoMcp(mcp store.Mcp) *agentsv1.Mcp {
-	proto := &agentsv1.Mcp{
-		Meta:        toProtoEntityMeta(mcp.Meta),
-		AgentId:     mcp.AgentID.String(),
-		Name:        mcp.Name,
-		Image:       mcp.Image,
-		Command:     mcp.Command,
-		Resources:   toProtoComputeResources(mcp.Resources),
-		Description: mcp.Description,
+	protoMcp := &agentsv1.Mcp{
+		Meta:          toProtoEntityMeta(mcp.Meta),
+		Name:          mcp.Name,
+		Image:         mcp.Image,
+		Command:       mcp.Command,
+		Resources:     toProtoComputeResources(mcp.Resources),
+		Description:   mcp.Description,
+		ImageTag:      mcp.ImageTag,
+		SharedVolumes: mcp.SharedVolumes,
 	}
 	if mcp.ImageID != nil {
-		proto.ImageId = mcp.ImageID.String()
-		proto.ImageTag = mcp.ImageTag
+		protoMcp.ImageId = mcp.ImageID.String()
 	}
-	return proto
+	if mcp.EnvironmentID != nil {
+		protoMcp.Target = &agentsv1.Mcp_EnvironmentId{EnvironmentId: mcp.EnvironmentID.String()}
+	} else if mcp.AgentID != nil {
+		protoMcp.Target = &agentsv1.Mcp_AgentId{AgentId: mcp.AgentID.String()}
+	}
+	return protoMcp
 }
 
 func toProtoSkill(skill store.Skill) *agentsv1.Skill {
@@ -208,6 +202,10 @@ func toProtoInitScript(script store.InitScript) *agentsv1.InitScript {
 	}
 	if script.AgentID != nil {
 		protoScript.Target = &agentsv1.InitScript_AgentId{AgentId: script.AgentID.String()}
+		return protoScript
+	}
+	if script.EnvironmentID != nil {
+		protoScript.Target = &agentsv1.InitScript_EnvironmentId{EnvironmentId: script.EnvironmentID.String()}
 		return protoScript
 	}
 	if script.McpID != nil {

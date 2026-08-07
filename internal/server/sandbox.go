@@ -40,6 +40,12 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "runner_id: %v", err)
 	}
+	// Required, with no default: running in an environment reaches its secrets,
+	// so who may do so is the author's decision to state.
+	availability, err := environmentAvailabilityFromProto(req.GetAvailability())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "availability: %v", err)
+	}
 	if err := validateSandboxName(req.GetName()); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
 	}
@@ -71,10 +77,11 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	// it is resolved at workload start so an environment and the runner
 	// configuration naming its flavor can be applied in either order.
 	input := store.EnvironmentInput{
-		Name:     req.GetName(),
-		Image:    req.GetImage(),
-		RunnerID: &runnerID,
-		Flavor:   req.GetFlavor(),
+		Availability: availability,
+		Name:         req.GetName(),
+		Image:        req.GetImage(),
+		RunnerID:     &runnerID,
+		Flavor:       req.GetFlavor(),
 	}
 	if workspace != nil {
 		input.WorkspaceImageID = &workspace.ImageID
@@ -110,7 +117,7 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	}
 	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil &&
 		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
-		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil {
+		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil && req.Availability == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	update := store.EnvironmentUpdate{}
@@ -131,6 +138,13 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if req.Flavor != nil {
 		flavor := req.GetFlavor()
 		update.Flavor = &flavor
+	}
+	if req.Availability != nil {
+		availability, err := environmentAvailabilityFromProto(req.GetAvailability())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "availability: %v", err)
+		}
+		update.Availability = &availability
 	}
 	if err := s.applyEnvironmentImageUpdate(ctx, req, id, &update); err != nil {
 		return nil, err

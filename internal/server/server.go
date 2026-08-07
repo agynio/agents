@@ -687,22 +687,70 @@ func (s *Server) ListAgents(ctx context.Context, req *agentsv1.ListAgentsRequest
 	return &agentsv1.ListAgentsResponse{Agents: agents, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateVolume(ctx context.Context, req *agentsv1.CreateVolumeRequest) (*agentsv1.CreateVolumeResponse, error) {
-	organizationID, err := parseUUID(req.GetOrganizationId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
+// volumeTarget resolves the environment or MCP a volume names, and the
+// organization both belong to. Authorization follows the target: a volume is
+// gated by the environment that owns it, never by itself.
+func (s *Server) volumeTarget(ctx context.Context, environmentIDRaw, mcpIDRaw string) (store.VolumeInput, uuid.UUID, error) {
+	input := store.VolumeInput{}
+	switch {
+	case environmentIDRaw != "":
+		environmentID, err := parseUUID(environmentIDRaw)
+		if err != nil {
+			return input, uuid.UUID{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		environment, err := s.store.GetEnvironment(ctx, environmentID)
+		if err != nil {
+			return input, uuid.UUID{}, toStatusError(err)
+		}
+		if err := s.requireEnvironmentWrite(ctx, environment); err != nil {
+			return input, uuid.UUID{}, err
+		}
+		input.EnvironmentID = &environmentID
+		return input, environment.OrganizationID, nil
+	case mcpIDRaw != "":
+		mcpID, err := parseUUID(mcpIDRaw)
+		if err != nil {
+			return input, uuid.UUID{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		mcp, err := s.store.GetMcp(ctx, mcpID)
+		if err != nil {
+			return input, uuid.UUID{}, toStatusError(err)
+		}
+		input.McpID = &mcpID
+		return input, mcp.OrganizationID, nil
+	default:
+		return input, uuid.UUID{}, status.Error(codes.InvalidArgument, "environment_id or mcp_id is required")
 	}
-	volume, err := s.store.CreateVolume(ctx, organizationID, store.VolumeInput{
-		Persistent:  req.GetPersistent(),
-		MountPath:   req.GetMountPath(),
-		Size:        req.GetSize(),
-		Description: req.GetDescription(),
-		TTL:         req.Ttl,
-	})
+}
+
+func (s *Server) CreateVolume(ctx context.Context, req *agentsv1.CreateVolumeRequest) (*agentsv1.CreateVolumeResponse, error) {
+	input, organizationID, err := s.volumeTarget(ctx, req.GetEnvironmentId(), req.GetMcpId())
+	if err != nil {
+		return nil, err
+	}
+	if err := validateVolumeName(req.GetName()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+	}
+	if err := validateMountPath(req.GetMountPath()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "mount_path: %v", err)
+	}
+	// size is what makes a volume persistent: the two are biconditional, so a
+	// separate flag could only ever contradict it.
+	size, persistent, err := resolveVolumeSize(req.GetSize(), req.GetPersistent())
+	if err != nil {
+		return nil, err
+	}
+	input.Name = req.GetName()
+	input.MountPath = req.GetMountPath()
+	input.Persistent = persistent
+	input.Size = size
+	input.StorageClass = req.StorageClass
+	input.TTL = req.Ttl
+	volume, err := s.store.CreateVolume(ctx, organizationID, input)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForVolume(ctx, volume.Meta.ID)
+	s.publishVolumeTargetUpdated(ctx, volume)
 	return &agentsv1.CreateVolumeResponse{Volume: toProtoVolume(volume)}, nil
 }
 
@@ -723,29 +771,51 @@ func (s *Server) UpdateVolume(ctx context.Context, req *agentsv1.UpdateVolumeReq
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	if req.Persistent == nil && req.MountPath == nil && req.Size == nil && req.Description == nil && req.Ttl == nil {
+	if req.Persistent == nil && req.MountPath == nil && req.Size == nil &&
+		req.Name == nil && req.StorageClass == nil && req.Ttl == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+	existing, err := s.store.GetVolume(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireVolumeWrite(ctx, existing); err != nil {
+		return nil, err
 	}
 
 	update := store.VolumeUpdate{}
-	if req.Persistent != nil {
-		value := req.GetPersistent()
-		update.Persistent = &value
+	if req.Name != nil {
+		value := req.GetName()
+		if err := validateVolumeName(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+		}
+		update.Name = &value
 	}
 	if req.MountPath != nil {
 		value := req.GetMountPath()
+		if err := validateMountPath(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "mount_path: %v", err)
+		}
 		update.MountPath = &value
 	}
-	if req.Size != nil {
-		value := req.GetSize()
-		update.Size = &value
+	if req.Size != nil || req.Persistent != nil {
+		requestedSize := req.GetSize()
+		if req.Size == nil && existing.Size != nil {
+			requestedSize = *existing.Size
+		}
+		size, persistent, err := resolveVolumeSize(requestedSize, req.GetPersistent())
+		if err != nil {
+			return nil, err
+		}
+		update.Size = &size
+		update.Persistent = &persistent
 	}
-	if req.Description != nil {
-		value := req.GetDescription()
-		update.Description = &value
+	if req.StorageClass != nil {
+		value := req.StorageClass
+		update.StorageClass = &value
 	}
 	if req.Ttl != nil {
-		value := req.GetTtl()
+		value := req.Ttl
 		update.TTL = &value
 	}
 
@@ -753,7 +823,7 @@ func (s *Server) UpdateVolume(ctx context.Context, req *agentsv1.UpdateVolumeReq
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForVolume(ctx, volume.Meta.ID)
+	s.publishVolumeTargetUpdated(ctx, volume)
 	return &agentsv1.UpdateVolumeResponse{Volume: toProtoVolume(volume)}, nil
 }
 
@@ -776,18 +846,42 @@ func (s *Server) DeleteVolume(ctx context.Context, req *agentsv1.DeleteVolumeReq
 }
 
 func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesRequest) (*agentsv1.ListVolumesResponse, error) {
-	organizationID, err := parseUUID(req.GetOrganizationId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-	}
-	if err := s.requireOrganizationListAccess(ctx, organizationID); err != nil {
-		return nil, err
+	filter := store.VolumeFilter{}
+	var organizationID uuid.UUID
+	switch {
+	case req.GetEnvironmentId() != "":
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		environment, err := s.store.GetEnvironment(ctx, environmentID)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		if err := s.requireEnvironmentRead(ctx, environment); err != nil {
+			return nil, err
+		}
+		filter.EnvironmentID = &environmentID
+		organizationID = environment.OrganizationID
+	case req.GetMcpId() != "":
+		mcpID, err := parseUUID(req.GetMcpId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		mcp, err := s.store.GetMcp(ctx, mcpID)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		filter.McpID = &mcpID
+		organizationID = mcp.OrganizationID
+	default:
+		return nil, status.Error(codes.InvalidArgument, "environment_id or mcp_id is required")
 	}
 	cursor, err := decodePageCursor(req.GetPageToken())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
-	result, err := s.store.ListVolumes(ctx, organizationID, store.VolumeFilter{}, req.GetPageSize(), cursor)
+	result, err := s.store.ListVolumes(ctx, organizationID, filter, req.GetPageSize(), cursor)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
@@ -795,153 +889,71 @@ func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesReque
 	return &agentsv1.ListVolumesResponse{Volumes: volumes, NextPageToken: nextToken}, nil
 }
 
-func (s *Server) CreateVolumeAttachment(ctx context.Context, req *agentsv1.CreateVolumeAttachmentRequest) (*agentsv1.CreateVolumeAttachmentResponse, error) {
-	volumeID, err := parseUUID(req.GetVolumeId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "volume_id: %v", err)
+func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) (*agentsv1.CreateMcpResponse, error) {
+	name := req.GetName()
+	if err := validateMcpName(name); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
 	}
-
-	input := store.VolumeAttachmentInput{VolumeID: volumeID}
-	switch target := req.GetTarget().(type) {
-	case *agentsv1.CreateVolumeAttachmentRequest_AgentId:
-		id, err := parseUUID(target.AgentId)
+	input := store.McpInput{
+		Name:          name,
+		Image:         req.GetImage(),
+		Command:       req.GetCommand(),
+		Resources:     toStoreComputeResources(req.GetResources()),
+		Description:   req.GetDescription(),
+		SharedVolumes: req.GetSharedVolumes(),
+	}
+	var organizationID uuid.UUID
+	switch {
+	case req.GetEnvironmentId() != "":
+		environmentID, err := parseUUID(req.GetEnvironmentId())
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 		}
-		input.AgentID = &id
-	case *agentsv1.CreateVolumeAttachmentRequest_McpId:
-		id, err := parseUUID(target.McpId)
+		environment, err := s.store.GetEnvironment(ctx, environmentID)
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+			return nil, toStatusError(err)
 		}
-		input.McpID = &id
-	default:
-		return nil, status.Error(codes.InvalidArgument, "target must be specified")
-	}
-
-	attachment, err := s.store.CreateVolumeAttachment(ctx, input)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID)
-	return &agentsv1.CreateVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
-}
-
-func (s *Server) GetVolumeAttachment(ctx context.Context, req *agentsv1.GetVolumeAttachmentRequest) (*agentsv1.GetVolumeAttachmentResponse, error) {
-	id, err := parseUUID(req.GetId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
-	}
-	attachment, err := s.store.GetVolumeAttachment(ctx, id)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	return &agentsv1.GetVolumeAttachmentResponse{VolumeAttachment: toProtoVolumeAttachment(attachment)}, nil
-}
-
-func (s *Server) DeleteVolumeAttachment(ctx context.Context, req *agentsv1.DeleteVolumeAttachmentRequest) (*agentsv1.DeleteVolumeAttachmentResponse, error) {
-	id, err := parseUUID(req.GetId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
-	}
-	attachment, err := s.store.GetVolumeAttachment(ctx, id)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	if err := s.store.DeleteVolumeAttachment(ctx, id); err != nil {
-		return nil, toStatusError(err)
-	}
-	s.publishAgentUpdatedForTarget(ctx, attachment.AgentID, attachment.McpID)
-	return &agentsv1.DeleteVolumeAttachmentResponse{}, nil
-}
-
-func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVolumeAttachmentsRequest) (*agentsv1.ListVolumeAttachmentsResponse, error) {
-	cursor, err := decodePageCursor(req.GetPageToken())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
-	}
-
-	hasFilter := false
-	filter := store.VolumeAttachmentFilter{}
-	if req.GetVolumeId() != "" {
-		hasFilter = true
-		volumeID, err := parseUUID(req.GetVolumeId())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "volume_id: %v", err)
+		if err := s.requireEnvironmentWrite(ctx, environment); err != nil {
+			return nil, err
 		}
-		filter.VolumeID = &volumeID
-	}
-	if req.GetAgentId() != "" {
-		hasFilter = true
+		input.EnvironmentID = &environmentID
+		organizationID = environment.OrganizationID
+	case req.GetAgentId() != "":
 		agentID, err := parseUUID(req.GetAgentId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
-		filter.AgentID = &agentID
-	}
-	if req.GetMcpId() != "" {
-		hasFilter = true
-		mcpID, err := parseUUID(req.GetMcpId())
+		organizationID, err = s.organizationOfAgent(ctx, agentID)
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+			return nil, err
 		}
-		filter.McpID = &mcpID
+		input.AgentID = &agentID
+	default:
+		return nil, status.Error(codes.InvalidArgument, "environment_id or agent_id is required")
 	}
-	if !hasFilter {
-		return nil, status.Error(codes.InvalidArgument, "at least one filter must be provided")
-	}
-
-	result, err := s.store.ListVolumeAttachments(ctx, filter, req.GetPageSize(), cursor)
-	if err != nil {
-		return nil, toStatusError(err)
-	}
-	attachments, nextToken := mapListResult(result.VolumeAttachments, result.NextCursor, toProtoVolumeAttachment)
-	return &agentsv1.ListVolumeAttachmentsResponse{VolumeAttachments: attachments, NextPageToken: nextToken}, nil
-}
-
-func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) (*agentsv1.CreateMcpResponse, error) {
-	agentID, err := parseUUID(req.GetAgentId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-	}
-	name := req.GetName()
-	if err := validateMcpName(name); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+	// shared_volumes names environment volumes, which an MCP on an environment
+	// resolves against its own; an agent-level one resolves at workload start.
+	if len(input.SharedVolumes) > 0 && input.AgentID == nil && input.EnvironmentID == nil {
+		return nil, status.Error(codes.InvalidArgument, "shared_volumes requires a target")
 	}
 	reference, err := parseImageReference(req.GetImageId(), req.GetImageTag(), "image")
 	if err != nil {
 		return nil, err
 	}
 	if reference != nil {
-		organizationID, err := s.organizationOfAgent(ctx, agentID)
-		if err != nil {
-			return nil, err
-		}
 		// An MCP may run a purpose-built server image or a devcontainer, so
 		// the type is not narrowed here; the catalog rejects an agent runtime.
 		if err := s.validateMcpImage(ctx, *reference, organizationID); err != nil {
 			return nil, err
 		}
-	}
-
-	resources := toStoreComputeResources(req.GetResources())
-	input := store.McpInput{
-		AgentID:     agentID,
-		Name:        name,
-		Image:       req.GetImage(),
-		Command:     req.GetCommand(),
-		Resources:   resources,
-		Description: req.GetDescription(),
-	}
-	if reference != nil {
 		input.ImageID = &reference.ImageID
 		input.ImageTag = reference.Tag
 	}
-	mcp, err := s.store.CreateMcp(ctx, input)
+	mcp, err := s.store.CreateMcp(ctx, organizationID, input)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedByID(ctx, mcp.AgentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, mcp.AgentID, nil, mcp.EnvironmentID)
 	return &agentsv1.CreateMcpResponse{Mcp: toProtoMcp(mcp)}, nil
 }
 
@@ -992,7 +1004,7 @@ func (s *Server) UpdateMcp(ctx context.Context, req *agentsv1.UpdateMcpRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedByID(ctx, mcp.AgentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, mcp.AgentID, nil, mcp.EnvironmentID)
 	return &agentsv1.UpdateMcpResponse{Mcp: toProtoMcp(mcp)}, nil
 }
 
@@ -1008,7 +1020,7 @@ func (s *Server) DeleteMcp(ctx context.Context, req *agentsv1.DeleteMcpRequest) 
 	if err := s.store.DeleteMcp(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedByID(ctx, mcp.AgentID)
+	s.publishAgentUpdatedForConfigTarget(ctx, mcp.AgentID, nil, mcp.EnvironmentID)
 	return &agentsv1.DeleteMcpResponse{}, nil
 }
 
@@ -1319,6 +1331,7 @@ func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitS
 		Script:      req.GetScript(),
 		Description: req.GetDescription(),
 	}
+	var organizationID uuid.UUID
 
 	switch target := req.GetTarget().(type) {
 	case *agentsv1.CreateInitScriptRequest_AgentId:
@@ -1326,22 +1339,45 @@ func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitS
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
+		organizationID, err = s.organizationOfAgent(ctx, id)
+		if err != nil {
+			return nil, err
+		}
 		input.AgentID = &id
 	case *agentsv1.CreateInitScriptRequest_McpId:
 		id, err := parseUUID(target.McpId)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
 		}
+		mcp, err := s.store.GetMcp(ctx, id)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		organizationID = mcp.OrganizationID
 		input.McpID = &id
+	case *agentsv1.CreateInitScriptRequest_EnvironmentId:
+		id, err := parseUUID(target.EnvironmentId)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		environment, err := s.store.GetEnvironment(ctx, id)
+		if err != nil {
+			return nil, toStatusError(err)
+		}
+		if err := s.requireEnvironmentWrite(ctx, environment); err != nil {
+			return nil, err
+		}
+		organizationID = environment.OrganizationID
+		input.EnvironmentID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
 
-	script, err := s.store.CreateInitScript(ctx, input)
+	script, err := s.store.CreateInitScript(ctx, organizationID, input)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID)
+	s.publishAgentUpdatedForConfigTarget(ctx, script.AgentID, script.McpID, script.EnvironmentID)
 	return &agentsv1.CreateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
@@ -1528,6 +1564,26 @@ func toStoreComputeResources(resources *agentsv1.ComputeResources) store.Compute
 		LimitsCPU:      resources.GetLimitsCpu(),
 		LimitsMemory:   resources.GetLimitsMemory(),
 	}
+}
+
+func environmentAvailabilityFromProto(availability agentsv1.EnvironmentAvailability) (store.EnvironmentAvailability, error) {
+	switch availability {
+	case agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_INTERNAL:
+		return store.EnvironmentAvailabilityInternal, nil
+	case agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_PRIVATE:
+		return store.EnvironmentAvailabilityPrivate, nil
+	case agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_UNSPECIFIED:
+		return "", fmt.Errorf("must be internal or private")
+	default:
+		return "", fmt.Errorf("unknown value %d", availability)
+	}
+}
+
+func toProtoEnvironmentAvailability(availability store.EnvironmentAvailability) agentsv1.EnvironmentAvailability {
+	if availability == store.EnvironmentAvailabilityPrivate {
+		return agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_PRIVATE
+	}
+	return agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_INTERNAL
 }
 
 func agentAvailabilityFromProto(availability agentsv1.AgentAvailability) (store.AgentAvailability, error) {
