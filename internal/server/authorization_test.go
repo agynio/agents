@@ -272,6 +272,9 @@ func TestSandboxListFilterRequiresListPermissionForOtherOwner(t *testing.T) {
 type recordingAuthorizationWriter struct {
 	writes []*authorizationv1.WriteRequest
 	checks []*authorizationv1.CheckRequest
+	reads  []*authorizationv1.ReadRequest
+	// storedTuples is what Read returns, filtered by the requested object.
+	storedTuples []*authorizationv1.TupleKey
 	// allowedObjects, when set, are the only objects a check is allowed against,
 	// which is how a caller holding tuples somewhere else is expressed. A nil map
 	// allows every check.
@@ -289,6 +292,19 @@ func (w *recordingAuthorizationWriter) Check(_ context.Context, req *authorizati
 	}
 	allowed := w.allowedObjects == nil || w.allowedObjects[req.GetTupleKey().GetObject()]
 	return &authorizationv1.CheckResponse{Allowed: allowed}, nil
+}
+
+// Read returns the tuples the fake was seeded with, so instance cleanup can be
+// exercised without an authorization server.
+func (w *recordingAuthorizationWriter) Read(_ context.Context, req *authorizationv1.ReadRequest, _ ...grpc.CallOption) (*authorizationv1.ReadResponse, error) {
+	w.reads = append(w.reads, req)
+	tuples := make([]*authorizationv1.Tuple, 0, len(w.storedTuples))
+	for _, key := range w.storedTuples {
+		if req.GetTupleKey().GetObject() == "" || key.GetObject() == req.GetTupleKey().GetObject() {
+			tuples = append(tuples, &authorizationv1.Tuple{Key: key})
+		}
+	}
+	return &authorizationv1.ReadResponse{Tuples: tuples}, nil
 }
 
 func (w *recordingAuthorizationWriter) Write(_ context.Context, req *authorizationv1.WriteRequest, _ ...grpc.CallOption) (*authorizationv1.WriteResponse, error) {
@@ -375,14 +391,32 @@ func TestAddAgentInstanceAuthorizationWritesClassOrgMembership(t *testing.T) {
 	assertTuples(t, request.GetDeletes(), nil)
 }
 
-func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T) {
-	authz := &recordingAuthorizationWriter{}
-	server := &Server{authz: authz}
+func TestRemoveAgentInstanceAuthorizationDeletesEveryTupleOnTheInstance(t *testing.T) {
 	instance := store.AgentInstance{
 		Meta:           store.EntityMeta{ID: uuid.New()},
 		AgentID:        uuid.New(),
 		OrganizationID: uuid.New(),
 	}
+	// can_write_inbox is granted after creation, so deleting only what creation
+	// wrote leaves grants naming an instance that no longer exists.
+	inboxGrant := &authorizationv1.TupleKey{
+		User:     identityPrefix + uuid.NewString(),
+		Relation: "can_write_inbox",
+		Object:   agentInstancePrefix + instance.Meta.ID.String(),
+	}
+	other := &authorizationv1.TupleKey{
+		User:     identityPrefix + uuid.NewString(),
+		Relation: "can_write_inbox",
+		Object:   agentInstancePrefix + uuid.NewString(),
+	}
+	authz := &recordingAuthorizationWriter{storedTuples: []*authorizationv1.TupleKey{
+		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
+		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+		inboxGrant,
+		other,
+	}}
+	server := &Server{authz: authz}
 
 	if err := server.removeAgentInstanceAuthorization(context.Background(), instance); err != nil {
 		t.Fatalf("remove agent instance authorization: %v", err)
@@ -390,9 +424,30 @@ func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T)
 
 	request := singleWriteRequest(t, authz)
 	assertTuples(t, request.GetWrites(), nil)
+	// Everything on this instance, and nothing belonging to another.
 	assertTuples(t, request.GetDeletes(), []*authorizationv1.TupleKey{
 		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
+		inboxGrant,
+		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+	})
+}
+
+// An instance nobody granted anything on still gives up its organization
+// membership, which is written at creation and read back from a different
+// object.
+func TestRemoveAgentInstanceAuthorizationAlwaysDropsMembership(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	instance := store.AgentInstance{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		OrganizationID: uuid.New(),
+	}
+
+	if err := server.removeAgentInstanceAuthorization(context.Background(), instance); err != nil {
+		t.Fatalf("remove agent instance authorization: %v", err)
+	}
+	assertTuples(t, singleWriteRequest(t, authz).GetDeletes(), []*authorizationv1.TupleKey{
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
 	})
 }

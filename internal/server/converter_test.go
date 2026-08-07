@@ -311,6 +311,10 @@ func (noopAuthorizationWriter) Check(context.Context, *authorizationv1.CheckRequ
 	return &authorizationv1.CheckResponse{Allowed: true}, nil
 }
 
+func (noopAuthorizationWriter) Read(context.Context, *authorizationv1.ReadRequest, ...grpc.CallOption) (*authorizationv1.ReadResponse, error) {
+	return &authorizationv1.ReadResponse{}, nil
+}
+
 func (noopAuthorizationWriter) Write(context.Context, *authorizationv1.WriteRequest, ...grpc.CallOption) (*authorizationv1.WriteResponse, error) {
 	return &authorizationv1.WriteResponse{}, nil
 }
