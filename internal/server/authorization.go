@@ -98,6 +98,21 @@ func (s *Server) requireEnvironmentRead(ctx context.Context, environment store.E
 	return s.requireOrganizationListAccess(ctx, environment.OrganizationID)
 }
 
+// requireEnvironmentConfigRead authorizes reading what an environment contains,
+// as distinct from its metadata: the volumes, servers, scripts and variables a
+// workload there carries. An internal caller holds no tuples and is served, as
+// the Orchestrator reads all of it while assembling workloads.
+func (s *Server) requireEnvironmentConfigRead(ctx context.Context, environmentID uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	return s.requireEnvironmentRelation(ctx, identityID, environmentID, "can_read_config")
+}
+
 // requireEnvironmentWrite authorizes changing an environment or anything it
 // owns. These RPCs have no internal callers, so an identity is required.
 func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.Environment) error {

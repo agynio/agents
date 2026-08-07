@@ -139,6 +139,12 @@ func (s *Server) environmentInOrganization(ctx context.Context, value string, or
 	if environment.OrganizationID != organizationID {
 		return uuid.UUID{}, status.Error(codes.InvalidArgument, "environment_id: environment belongs to another organization")
 	}
+	// Pointing an agent at an environment runs its workloads there, reaching the
+	// same secrets, egress credentials and volume contents a sandbox would, so
+	// it takes the same grant.
+	if err := s.requireEnvironmentUse(ctx, environmentID); err != nil {
+		return uuid.UUID{}, err
+	}
 	return environmentID, nil
 }
 
@@ -858,7 +864,7 @@ func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesReque
 		if err != nil {
 			return nil, toStatusError(err)
 		}
-		if err := s.requireEnvironmentRead(ctx, environment); err != nil {
+		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
 			return nil, err
 		}
 		filter.EnvironmentID = &environmentID
@@ -1030,14 +1036,26 @@ func (s *Server) ListMcps(ctx context.Context, req *agentsv1.ListMcpsRequest) (*
 		return nil, status.Errorf(codes.InvalidArgument, "invalid page_token: %v", err)
 	}
 
-	if req.GetAgentId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "agent_id must be provided")
+	filter := store.McpFilter{}
+	switch {
+	case req.GetEnvironmentId() != "":
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
+			return nil, err
+		}
+		filter.EnvironmentID = &environmentID
+	case req.GetAgentId() != "":
+		agentID, err := parseUUID(req.GetAgentId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		filter.AgentID = &agentID
+	default:
+		return nil, status.Error(codes.InvalidArgument, "agent_id or environment_id must be provided")
 	}
-	agentID, err := parseUUID(req.GetAgentId())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
-	}
-	filter := store.McpFilter{AgentID: &agentID}
 
 	result, err := s.store.ListMcps(ctx, filter, req.GetPageSize(), cursor)
 	if err != nil {
@@ -1315,6 +1333,9 @@ func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsReques
 		if err != nil {
 			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 		}
+		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
+			return store.EnvFilter{}, err
+		}
 		filter.EnvironmentID = &environmentID
 	}
 
@@ -1444,6 +1465,16 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 
 	hasFilter := false
 	filter := store.InitScriptFilter{}
+	if req.GetEnvironmentId() != "" {
+		environmentID, err := parseUUID(req.GetEnvironmentId())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		}
+		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
+			return nil, err
+		}
+		filter.EnvironmentID = &environmentID
+	}
 	if req.GetAgentId() != "" {
 		hasFilter = true
 		agentID, err := parseUUID(req.GetAgentId())
