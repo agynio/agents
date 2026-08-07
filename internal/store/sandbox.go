@@ -118,6 +118,24 @@ func (s *Store) DeleteEnvironment(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ListAllEnvironments pages every environment regardless of organization. Used
+// by the authorization backfill, which repairs rows across all of them.
+func (s *Store) ListAllEnvironments(ctx context.Context, pageSize int32, cursor *PageCursor) (EnvironmentListResult, error) {
+	environments, nextCursor, err := listEntities(ctx, s.pool,
+		fmt.Sprintf("SELECT %s FROM environments", environmentColumns),
+		nil,
+		nil,
+		cursor,
+		pageSize,
+		scanEnvironment,
+		func(environment Environment) uuid.UUID { return environment.Meta.ID },
+	)
+	if err != nil {
+		return EnvironmentListResult{}, err
+	}
+	return EnvironmentListResult{Environments: environments, NextCursor: nextCursor}, nil
+}
+
 func (s *Store) ListEnvironments(ctx context.Context, organizationID uuid.UUID, _ EnvironmentFilter, pageSize int32, cursor *PageCursor) (EnvironmentListResult, error) {
 	environments, nextCursor, err := listEntities(ctx, s.pool,
 		fmt.Sprintf("SELECT %s FROM environments", environmentColumns),

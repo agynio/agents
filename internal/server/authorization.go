@@ -157,6 +157,16 @@ func (s *Server) addEnvironmentAuthorization(ctx context.Context, environmentID,
 	return s.writeAuthorization(ctx, writes, nil)
 }
 
+// addEnvironmentBaseAuthorization writes what an environment needs to resolve
+// at all, without an owner. Used by the backfill, where no creator is recorded.
+func (s *Server) addEnvironmentBaseAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, availability store.EnvironmentAvailability) error {
+	writes := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
+	if availability == store.EnvironmentAvailabilityInternal {
+		writes = append(writes, environmentInternalAccessTuple(environmentID, organizationID))
+	}
+	return s.writeAuthorization(ctx, writes, nil)
+}
+
 func (s *Server) removeEnvironmentAuthorization(ctx context.Context, environmentID, organizationID uuid.UUID, roles []store.EnvironmentRoleAssignment, availability store.EnvironmentAvailability) error {
 	deletes := []*authorizationv1.TupleKey{environmentOrganizationTuple(environmentID, organizationID)}
 	if availability == store.EnvironmentAvailabilityInternal {

@@ -206,9 +206,10 @@ func (s *Server) DeleteEnvironment(ctx context.Context, req *agentsv1.DeleteEnvi
 	if err := s.requireEnvironmentWrite(ctx, existing); err != nil {
 		return nil, err
 	}
-	// Role tuples are not enumerated here: the role API that would record them
-	// is not implemented yet, so the only one is the creator's owner tuple.
-	var roles []store.EnvironmentRoleAssignment
+	roles, err := s.store.ListEnvironmentRoles(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
 	if err := s.store.DeleteEnvironment(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
