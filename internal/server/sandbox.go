@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/big"
 	"regexp"
+	"strings"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
 	imagesv1 "github.com/agynio/agents/.gen/go/agynio/api/images/v1"
@@ -83,12 +84,19 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 	// The flavor name is deliberately not checked against the runner's catalog:
 	// it is resolved at workload start so an environment and the runner
 	// configuration naming its flavor can be applied in either order.
+	llmMode, err := llmModeFromProto(req.GetLlmMode())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "llm_mode: %v", err)
+	}
+
 	input := store.EnvironmentInput{
-		Availability: availability,
-		Name:         req.GetName(),
-		Image:        req.GetImage(),
-		RunnerID:     &runnerID,
-		Flavor:       req.GetFlavor(),
+		Availability:     availability,
+		Name:             req.GetName(),
+		Image:            req.GetImage(),
+		RunnerID:         &runnerID,
+		Flavor:           req.GetFlavor(),
+		LLMMode:          llmMode,
+		LLMAllowedModels: req.GetLlmAllowedModels(),
 	}
 	if workspace != nil {
 		input.WorkspaceImageID = &workspace.ImageID
@@ -128,6 +136,19 @@ func (s *Server) GetEnvironment(ctx context.Context, req *agentsv1.GetEnvironmen
 	return &agentsv1.GetEnvironmentResponse{Environment: toProtoEnvironment(environment)}, nil
 }
 
+func (s *Server) ensureEnvironmentUnreferencedByAgents(ctx context.Context, environmentID uuid.UUID) error {
+	names, err := s.store.ListAgentNamesByEnvironment(ctx, environmentID)
+	if err != nil {
+		return toStatusError(err)
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return status.Errorf(codes.FailedPrecondition,
+		"llm_mode cannot change while %d agent(s) reference this environment: %s",
+		len(names), strings.Join(names, ", "))
+}
+
 func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvironmentRequest) (*agentsv1.UpdateEnvironmentResponse, error) {
 	id, err := parseUUID(req.GetId())
 	if err != nil {
@@ -135,7 +156,8 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	}
 	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil &&
 		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
-		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil && req.Availability == nil {
+		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil && req.Availability == nil &&
+		req.LlmMode == nil && req.LlmAllowedModels == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	existing, err := s.store.GetEnvironment(ctx, id)
@@ -180,6 +202,24 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 			return nil, status.Error(codes.InvalidArgument, "image is required")
 		}
 		update.Image = &image
+	}
+	if req.LlmMode != nil {
+		llmMode, err := llmModeFromProto(req.GetLlmMode())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "llm_mode: %v", err)
+		}
+		// Every referencing agent's model / model_name becomes invalid in the
+		// other mode, and unlike an unresolvable flavor that is checkable now.
+		if llmMode != existing.LLMMode {
+			if err := s.ensureEnvironmentUnreferencedByAgents(ctx, id); err != nil {
+				return nil, err
+			}
+		}
+		update.LLMMode = &llmMode
+	}
+	if req.LlmAllowedModels != nil {
+		allowed := append([]string(nil), req.GetLlmAllowedModels()...)
+		update.LLMAllowedModels = &allowed
 	}
 	environment, err := s.store.UpdateEnvironment(ctx, id, update)
 	if err != nil {

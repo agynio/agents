@@ -33,6 +33,7 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Nickname:       agent.Nickname,
 		Role:           agent.Role,
 		Model:          agent.Model.String(),
+		ModelName:      agent.ModelName,
 		Description:    agent.Description,
 		Configuration:  agent.Configuration,
 		Image:          agent.Image,
@@ -110,6 +111,8 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 		proto.AgentRuntimeImageId = environment.AgentRuntimeImageID.String()
 		proto.AgentRuntimeImageTag = environment.AgentRuntimeImageTag
 	}
+	proto.LlmMode = toProtoLLMMode(environment.LLMMode)
+	proto.LlmAllowedModels = append([]string(nil), environment.LLMAllowedModels...)
 	return proto
 }
 

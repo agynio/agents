@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	agentsv1 "github.com/agynio/agents/.gen/go/agynio/api/agents/v1"
@@ -153,10 +154,6 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
 	}
-	modelID, err := parseUUID(req.GetModel())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
-	}
 	// init_image is required only for the deprecated inline path. An agent
 	// running an environment takes its agent CLI from that environment's agent
 	// runtime image instead.
@@ -196,6 +193,8 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	// Optional: an agent may name no environment and run from the deprecated
 	// inline image and resources instead.
 	var environmentID *uuid.UUID
+	// An agent without an environment predates modes, so it is a platform one.
+	llmMode := store.LLMModePlatform
 	if req.GetEnvironmentId() != "" {
 		resolved, err := s.environmentInOrganization(ctx, req.GetEnvironmentId(), organizationID)
 		if err != nil {
@@ -215,6 +214,13 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 				"environment %s names no agent runtime image, so it has no agent CLI to run", environment.Name)
 		}
 		environmentID = &resolved
+		llmMode = environment.LLMMode
+	}
+	// The mode decides which of the two model references is legal, so a
+	// mismatch fails when someone configures it rather than when it runs.
+	modelID, modelName, err := resolveAgentModel(llmMode, req.GetModel(), req.GetModelName())
+	if err != nil {
+		return nil, err
 	}
 	nickname := req.GetNickname()
 	defaultThread, err := agentDefaultThreadFromProto(req.GetDefaultThread())
@@ -231,6 +237,7 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		Nickname:        nickname,
 		Role:            req.GetRole(),
 		Model:           modelID,
+		ModelName:       modelName,
 		Description:     req.GetDescription(),
 		Configuration:   req.GetConfiguration(),
 		Image:           req.GetImage(),
@@ -344,7 +351,10 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	capabilitiesProvided := req.Capabilities != nil
 	availabilityProvided := req.Availability != nil
 	environmentProvided := req.EnvironmentId != nil
-	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil && req.InstanceIdleTtl == nil {
+	// Either model reference, or a change of environment, re-decides the pair,
+	// so all three route through the same validation below.
+	modelProvided := req.Model != nil || req.ModelName != nil
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.ModelName == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil && req.InstanceIdleTtl == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -357,7 +367,7 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	var nicknameUpdateNeeded bool
 	// An environment is checked against the agent's organization, which only the
 	// stored agent names.
-	if nicknameProvided || availabilityProvided || environmentProvided {
+	if nicknameProvided || availabilityProvided || environmentProvided || modelProvided {
 		previousAgent, err = s.store.GetAgent(ctx, id)
 		if err != nil {
 			return nil, toStatusError(err)
@@ -380,13 +390,6 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	if req.Role != nil {
 		value := req.GetRole()
 		update.Role = &value
-	}
-	if req.Model != nil {
-		modelID, err := parseUUID(req.GetModel())
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "model: %v", err)
-		}
-		update.Model = &modelID
 	}
 	if req.Description != nil {
 		value := req.GetDescription()
@@ -438,6 +441,15 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 			}
 			update.EnvironmentID = &environmentID
 		}
+	}
+
+	if modelProvided || environmentProvided {
+		modelID, modelName, err := s.resolveUpdatedAgentModel(ctx, req, previousAgent, update)
+		if err != nil {
+			return nil, err
+		}
+		update.Model = &modelID
+		update.ModelName = &modelName
 	}
 
 	if req.DefaultThread != nil {
@@ -1616,6 +1628,95 @@ func toProtoEnvironmentAvailability(availability store.EnvironmentAvailability) 
 		return agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_PRIVATE
 	}
 	return agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_INTERNAL
+}
+
+// Unspecified is platform: the mode is opt-in, and every environment written
+// before it existed is a platform one.
+// resolveUpdatedAgentModel validates the pair the agent will have after the
+// update, not the fields the request happened to carry: repointing an agent at
+// an environment in the other mode invalidates a reference the caller never
+// mentioned.
+func (s *Server) resolveUpdatedAgentModel(ctx context.Context, req *agentsv1.UpdateAgentRequest, previous store.Agent, update store.AgentUpdate) (uuid.UUID, string, error) {
+	environmentID := previous.EnvironmentID
+	if update.ClearEnvironmentID {
+		environmentID = nil
+	} else if update.EnvironmentID != nil {
+		environmentID = update.EnvironmentID
+	}
+
+	// No environment means an agent predating them, which is a platform one.
+	mode := store.LLMModePlatform
+	if environmentID != nil {
+		environment, err := s.store.GetEnvironment(ctx, *environmentID)
+		if err != nil {
+			return uuid.UUID{}, "", toStatusError(err)
+		}
+		mode = environment.LLMMode
+	}
+
+	model := previous.Model.String()
+	if previous.Model == uuid.Nil {
+		model = ""
+	}
+	if req.Model != nil {
+		model = req.GetModel()
+	}
+	modelName := previous.ModelName
+	if req.ModelName != nil {
+		modelName = req.GetModelName()
+	}
+	// Switching mode without restating the reference: drop the one the target
+	// mode rejects rather than refusing an otherwise valid repoint.
+	if mode == store.LLMModeNative && req.Model == nil {
+		model = ""
+	}
+	if mode == store.LLMModePlatform && req.ModelName == nil {
+		modelName = ""
+	}
+	return resolveAgentModel(mode, model, modelName)
+}
+
+// resolveAgentModel enforces the two references as required-and-exclusive in
+// each direction: platform mode owns a model namespace and native mode does
+// not, so exactly one of them can mean anything.
+func resolveAgentModel(mode store.LLMMode, model string, modelName string) (uuid.UUID, string, error) {
+	model = strings.TrimSpace(model)
+	modelName = strings.TrimSpace(modelName)
+	if mode == store.LLMModeNative {
+		if model != "" {
+			return uuid.UUID{}, "", status.Error(codes.InvalidArgument,
+				"model is rejected in a native environment, which has no platform model namespace; set model_name instead")
+		}
+		// Optional: unset leaves the CLI on its own default and its own picker.
+		return uuid.UUID{}, modelName, nil
+	}
+	if modelName != "" {
+		return uuid.UUID{}, "", status.Error(codes.InvalidArgument,
+			"model_name is rejected in a platform environment; reference a Model with model instead")
+	}
+	modelID, err := parseUUID(model)
+	if err != nil {
+		return uuid.UUID{}, "", status.Errorf(codes.InvalidArgument, "model: %v", err)
+	}
+	return modelID, "", nil
+}
+
+func llmModeFromProto(mode agentsv1.LLMMode) (store.LLMMode, error) {
+	switch mode {
+	case agentsv1.LLMMode_LLM_MODE_UNSPECIFIED, agentsv1.LLMMode_LLM_MODE_PLATFORM:
+		return store.LLMModePlatform, nil
+	case agentsv1.LLMMode_LLM_MODE_NATIVE:
+		return store.LLMModeNative, nil
+	default:
+		return "", fmt.Errorf("unknown value %d", mode)
+	}
+}
+
+func toProtoLLMMode(mode store.LLMMode) agentsv1.LLMMode {
+	if mode == store.LLMModeNative {
+		return agentsv1.LLMMode_LLM_MODE_NATIVE
+	}
+	return agentsv1.LLMMode_LLM_MODE_PLATFORM
 }
 
 func agentAvailabilityFromProto(availability agentsv1.AgentAvailability) (store.AgentAvailability, error) {
