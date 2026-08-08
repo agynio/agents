@@ -95,8 +95,10 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 		Image:            req.GetImage(),
 		RunnerID:         &runnerID,
 		Flavor:           req.GetFlavor(),
-		LLMMode:          llmMode,
-		LLMAllowedModels: req.GetLlmAllowedModels(),
+		LLMMode: llmMode,
+		// Never nil: the column is NOT NULL, and an absent repeated field
+		// arrives as a nil slice that pgx encodes as NULL rather than '{}'.
+		LLMAllowedModels: append([]string{}, req.GetLlmAllowedModels()...),
 	}
 	if workspace != nil {
 		input.WorkspaceImageID = &workspace.ImageID
@@ -218,7 +220,9 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 		update.LLMMode = &llmMode
 	}
 	if req.LlmAllowedModels != nil {
-		allowed := append([]string(nil), req.GetLlmAllowedModels()...)
+		// Same NOT NULL column as on create: the empty case has to reach pgx as
+		// '{}' rather than as a nil slice.
+		allowed := append([]string{}, req.GetLlmAllowedModels()...)
 		update.LLMAllowedModels = &allowed
 	}
 	environment, err := s.store.UpdateEnvironment(ctx, id, update)
