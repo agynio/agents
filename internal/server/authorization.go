@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	authorizationv1 "github.com/agynio/agents/.gen/go/agynio/api/authorization/v1"
@@ -20,6 +21,8 @@ const (
 	sandboxPrefix       = "sandbox:"
 	environmentPrefix   = "environment:"
 )
+
+var errNoStore = errors.New("store is not configured")
 
 type AuthorizationWriter interface {
 	Check(ctx context.Context, req *authorizationv1.CheckRequest, opts ...grpc.CallOption) (*authorizationv1.CheckResponse, error)
@@ -371,19 +374,46 @@ func (s *Server) removeAgentRoleAuthorization(ctx context.Context, agentID uuid.
 	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{agentRoleTuple(agentID, identityID, role)})
 }
 
+// addAgentInstanceAuthorization also grants the running instance the config it
+// was started from: agynd reads its agent's skills and its environment's init
+// scripts as the instance's own identity, and without these it is refused both
+// and the workload exits before serving.
+//
+// The agent's environment tuple is written here rather than at agent creation so
+// the grant repairs itself: an agent that predates the relation gains it the
+// next time it runs. That makes a repeat write the normal case, and OpenFGA
+// refuses a batch when any member already exists, so they go one at a time.
 func (s *Server) addAgentInstanceAuthorization(ctx context.Context, instance store.AgentInstance) error {
-	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{
+	tuples := []*authorizationv1.TupleKey{
 		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
-	}, nil)
+		agentInstanceIdentityTuple(instance.Meta.ID, instance.AgentID),
+	}
+	// Null on agents written before environments existed, which carry their own
+	// image and so have no environment config to read.
+	if agent, err := s.agentForAuthorization(ctx, instance.AgentID); err == nil && agent.EnvironmentID != nil {
+		tuples = append(tuples, agentEnvironmentTuple(instance.AgentID, *agent.EnvironmentID))
+	}
+	for _, tuple := range tuples {
+		if err := s.writeAuthorization(ctx, []*authorizationv1.TupleKey{tuple}, nil); err != nil {
+			if isTupleAlreadyExists(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
+// The agent's environment tuple is deliberately left: it belongs to the agent,
+// which outlives this instance and has other instances still reading it.
 func (s *Server) removeAgentInstanceAuthorization(ctx context.Context, instance store.AgentInstance) error {
 	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{
 		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityTuple(instance.Meta.ID, instance.AgentID),
 	})
 }
 
@@ -456,6 +486,35 @@ func agentInstanceOrganizationTuple(instanceID uuid.UUID, organizationID uuid.UU
 		User:     organizationPrefix + organizationID.String(),
 		Relation: "org",
 		Object:   agentInstancePrefix + instanceID.String(),
+	}
+}
+
+// agentForAuthorization reads the agent an instance belongs to, and tolerates a
+// Server built without a store so the tuple writes stay unit-testable.
+func (s *Server) agentForAuthorization(ctx context.Context, agentID uuid.UUID) (store.Agent, error) {
+	if s.store == nil {
+		return store.Agent{}, errNoStore
+	}
+	return s.store.GetAgent(ctx, agentID)
+}
+
+// agentInstanceIdentityTuple names the identity a running instance
+// authenticates as, which is how it reads the config it was started from.
+func agentInstanceIdentityTuple(instanceID uuid.UUID, agentID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + instanceID.String(),
+		Relation: "instance",
+		Object:   agentPrefix + agentID.String(),
+	}
+}
+
+// agentEnvironmentTuple reaches the environment's config from the agents it
+// supplies, so an instance reads the init scripts its workload carries.
+func agentEnvironmentTuple(agentID uuid.UUID, environmentID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     agentPrefix + agentID.String(),
+		Relation: "agent",
+		Object:   environmentPrefix + environmentID.String(),
 	}
 }
 
