@@ -94,6 +94,10 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 		Image:          environment.Image,
 		Flavor:         environment.Flavor,
 		FlavorName:     environment.FlavorName,
+		// toProtoEnvironmentAvailability existed and was never called, so every
+		// read returned UNSPECIFIED: the console's edit form matched no option
+		// and came up blank, which reads as "not set" rather than "not sent".
+		Availability: toProtoEnvironmentAvailability(environment.Availability),
 	}
 	if environment.RunnerID != nil {
 		proto.RunnerId = environment.RunnerID.String()

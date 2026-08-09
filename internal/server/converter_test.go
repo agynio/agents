@@ -432,3 +432,20 @@ func TestToProtoEnvCarriesTheEnvironmentTarget(t *testing.T) {
 		t.Fatalf("expected environment target %s, got %q", environmentID, protoEnv.GetEnvironmentId())
 	}
 }
+
+// The mapper existed and was never called, so every environment read came back
+// UNSPECIFIED and the console's edit form matched no option and rendered blank.
+func TestToProtoEnvironmentCarriesAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		stored store.EnvironmentAvailability
+		want   agentsv1.EnvironmentAvailability
+	}{
+		{store.EnvironmentAvailabilityInternal, agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_INTERNAL},
+		{store.EnvironmentAvailabilityPrivate, agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_PRIVATE},
+	} {
+		got := toProtoEnvironment(store.Environment{Availability: tc.stored})
+		if got.GetAvailability() != tc.want {
+			t.Fatalf("availability %q converted to %v, want %v", tc.stored, got.GetAvailability(), tc.want)
+		}
+	}
+}
