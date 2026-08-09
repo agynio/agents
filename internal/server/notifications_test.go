@@ -149,3 +149,31 @@ func assertRooms(t *testing.T, actual []string, expected []string) {
 		}
 	}
 }
+
+// The LLM Proxy caches an environment's model allowlist on a connection and
+// cannot enumerate the environments it serves, so a tightened allowlist reaches
+// it only through the flat room.
+func TestEnvironmentUpdatedPublishesToTheFlatRoom(t *testing.T) {
+	notifications := &recordingNotificationsClient{}
+	server := &Server{notifications: notifications}
+	environmentID := uuid.New()
+
+	server.publishEnvironmentUpdated(context.Background(), environmentID, uuid.New())
+
+	if len(notifications.published) != 1 {
+		t.Fatalf("expected one publish, got %d", len(notifications.published))
+	}
+	rooms := notifications.published[0].GetRooms()
+	var sawFlat, sawScoped bool
+	for _, room := range rooms {
+		switch room {
+		case environmentsRoom:
+			sawFlat = true
+		case "environment:" + environmentID.String():
+			sawScoped = true
+		}
+	}
+	if !sawFlat || !sawScoped {
+		t.Fatalf("expected both the flat and per-environment rooms, got %v", rooms)
+	}
+}

@@ -16,6 +16,11 @@ const (
 	agentUpdatedEvent       = "agent.updated"
 	environmentUpdatedEvent = "environment.updated"
 	sandboxUpdatedEvent     = "sandbox.updated"
+
+	// Flat, alongside the per-environment room: the LLM Proxy caches an
+	// environment's allowlist on a connection and cannot enumerate the
+	// environments it serves. Same shape as egress_rules.
+	environmentsRoom = "environments"
 )
 
 func (s *Server) publishAgentUpdated(ctx context.Context, agentID uuid.UUID, organizationID uuid.UUID) {
@@ -52,7 +57,7 @@ func (s *Server) publishEnvironmentUpdated(ctx context.Context, environmentID uu
 	}
 	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
 		Event:   environmentUpdatedEvent,
-		Rooms:   []string{fmt.Sprintf("environment:%s", environmentID)},
+		Rooms:   []string{fmt.Sprintf("environment:%s", environmentID), environmentsRoom},
 		Payload: payload,
 		Source:  "agents",
 	})

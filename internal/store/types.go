@@ -20,12 +20,15 @@ type ComputeResources struct {
 }
 
 type Agent struct {
-	Meta            EntityMeta
-	OrganizationID  uuid.UUID
-	Name            string
-	Nickname        string
-	Role            string
-	Model           uuid.UUID
+	Meta           EntityMeta
+	OrganizationID uuid.UUID
+	Name           string
+	Nickname       string
+	Role           string
+	Model          uuid.UUID
+	// The vendor's own model name, for native mode. Mutually exclusive with
+	// Model; the environment's mode decides which one is set.
+	ModelName       string
 	Description     string
 	Configuration   string
 	Image           string
@@ -268,7 +271,18 @@ type Environment struct {
 	AgentRuntimeImageID  *uuid.UUID
 	AgentRuntimeImageTag string
 	Availability         EnvironmentAvailability
+	// How workloads here reach an LLM, and — in native mode — which vendor
+	// model names they may ask for. An empty allowlist is no restriction.
+	LLMMode          LLMMode
+	LLMAllowedModels []string
 }
+
+type LLMMode string
+
+const (
+	LLMModePlatform LLMMode = "platform"
+	LLMModeNative   LLMMode = "native"
+)
 
 type Sandbox struct {
 	Meta            EntityMeta
@@ -296,10 +310,13 @@ type InitScript struct {
 }
 
 type AgentInput struct {
-	Name            string
-	Nickname        string
-	Role            string
-	Model           uuid.UUID
+	Name     string
+	Nickname string
+	Role     string
+	Model    uuid.UUID
+	// The vendor's own model name, for native mode. Mutually exclusive with
+	// Model; the environment's mode decides which one is set.
+	ModelName       string
 	Description     string
 	Configuration   string
 	Image           string
@@ -319,6 +336,7 @@ type AgentUpdate struct {
 	Nickname      *string
 	Role          *string
 	Model         *uuid.UUID
+	ModelName     *string
 	Description   *string
 	Configuration *string
 	Image         *string
@@ -438,6 +456,8 @@ type EnvironmentInput struct {
 	WorkspaceImageTag    string
 	AgentRuntimeImageID  *uuid.UUID
 	AgentRuntimeImageTag string
+	LLMMode              LLMMode
+	LLMAllowedModels     []string
 }
 
 type EnvironmentUpdate struct {
@@ -453,6 +473,8 @@ type EnvironmentUpdate struct {
 	WorkspaceImageTag    *string
 	AgentRuntimeImageID  **uuid.UUID
 	AgentRuntimeImageTag *string
+	LLMMode              *LLMMode
+	LLMAllowedModels     *[]string
 }
 
 type SandboxInput struct {

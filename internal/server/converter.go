@@ -33,6 +33,7 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Nickname:       agent.Nickname,
 		Role:           agent.Role,
 		Model:          agent.Model.String(),
+		ModelName:      agent.ModelName,
 		Description:    agent.Description,
 		Configuration:  agent.Configuration,
 		Image:          agent.Image,
@@ -93,6 +94,10 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 		Image:          environment.Image,
 		Flavor:         environment.Flavor,
 		FlavorName:     environment.FlavorName,
+		// toProtoEnvironmentAvailability existed and was never called, so every
+		// read returned UNSPECIFIED: the console's edit form matched no option
+		// and came up blank, which reads as "not set" rather than "not sent".
+		Availability: toProtoEnvironmentAvailability(environment.Availability),
 	}
 	if environment.RunnerID != nil {
 		proto.RunnerId = environment.RunnerID.String()
@@ -110,6 +115,8 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 		proto.AgentRuntimeImageId = environment.AgentRuntimeImageID.String()
 		proto.AgentRuntimeImageTag = environment.AgentRuntimeImageTag
 	}
+	proto.LlmMode = toProtoLLMMode(environment.LLMMode)
+	proto.LlmAllowedModels = append([]string(nil), environment.LLMAllowedModels...)
 	return proto
 }
 

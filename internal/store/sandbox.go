@@ -14,8 +14,9 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 	row := s.pool.QueryRow(ctx,
 		fmt.Sprintf(`INSERT INTO environments
 		 (organization_id, name, image, runner_id, flavor,
-		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability,
+		  llm_mode, llm_allowed_models)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING %s`, environmentColumns),
 		organizationID,
 		input.Name,
@@ -27,6 +28,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 		input.AgentRuntimeImageID,
 		input.AgentRuntimeImageTag,
 		input.Availability,
+		input.LLMMode,
+		input.LLMAllowedModels,
 	)
 	environment, err := scanEnvironment(row)
 	if err != nil {
@@ -83,6 +86,12 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 	if update.AgentRuntimeImageTag != nil {
 		builder.add("agent_runtime_image_tag", *update.AgentRuntimeImageTag)
 	}
+	if update.LLMMode != nil {
+		builder.add("llm_mode", string(*update.LLMMode))
+	}
+	if update.LLMAllowedModels != nil {
+		builder.add("llm_allowed_models", *update.LLMAllowedModels)
+	}
 	if builder.empty() {
 		return Environment{}, fmt.Errorf("environment update requires at least one field")
 	}
@@ -101,6 +110,25 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 		return Environment{}, err
 	}
 	return environment, nil
+}
+
+// ListAgentNamesByEnvironment names the agents that would be invalidated by a
+// change to the environment, so the refusal can say which ones.
+func (s *Store) ListAgentNamesByEnvironment(ctx context.Context, environmentID uuid.UUID) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT name FROM agents WHERE environment_id = $1 ORDER BY name`, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
 }
 
 func (s *Store) DeleteEnvironment(ctx context.Context, id uuid.UUID) error {
