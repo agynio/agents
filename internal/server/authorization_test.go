@@ -366,13 +366,19 @@ func TestAddAgentInstanceAuthorizationWritesClassOrgMembership(t *testing.T) {
 		t.Fatalf("add agent instance authorization: %v", err)
 	}
 
-	request := singleWriteRequest(t, authz)
-	assertTuples(t, request.GetWrites(), []*authorizationv1.TupleKey{
+	// Written one at a time: a repeat write is the normal case and OpenFGA
+	// refuses a batch when any member of it already exists.
+	var written []*authorizationv1.TupleKey
+	for _, request := range authz.writes {
+		assertTuples(t, request.GetDeletes(), nil)
+		written = append(written, request.GetWrites()...)
+	}
+	assertTuples(t, written, []*authorizationv1.TupleKey{
 		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityTuple(instance.Meta.ID, instance.AgentID),
 	})
-	assertTuples(t, request.GetDeletes(), nil)
 }
 
 func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T) {
@@ -394,6 +400,7 @@ func TestRemoveAgentInstanceAuthorizationDeletesClassOrgMembership(t *testing.T)
 		agentInstanceClassTuple(instance.Meta.ID, instance.AgentID),
 		agentInstanceOrganizationTuple(instance.Meta.ID, instance.OrganizationID),
 		agentInstanceIdentityOrganizationMembershipTuple(instance.Meta.ID, instance.OrganizationID),
+		agentInstanceIdentityTuple(instance.Meta.ID, instance.AgentID),
 	})
 }
 
