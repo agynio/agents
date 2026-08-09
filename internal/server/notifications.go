@@ -17,11 +17,9 @@ const (
 	environmentUpdatedEvent = "environment.updated"
 	sandboxUpdatedEvent     = "sandbox.updated"
 
-	// A flat room alongside the per-environment one. Notification
-	// subscriptions are fixed at request time, so an infrastructure consumer
-	// that cannot enumerate the environments it serves -- the LLM Proxy, which
-	// caches an environment's model allowlist on a connection -- needs a room
-	// it can hold one subscription open to. Same shape as egress_rules.
+	// Flat, alongside the per-environment room: the LLM Proxy caches an
+	// environment's allowlist on a connection and cannot enumerate the
+	// environments it serves. Same shape as egress_rules.
 	environmentsRoom = "environments"
 )
 
@@ -58,11 +56,7 @@ func (s *Server) publishEnvironmentUpdated(ctx context.Context, environmentID uu
 		return
 	}
 	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
-		Event: environmentUpdatedEvent,
-		// The flat room alongside the per-environment one: the LLM Proxy caches
-		// an environment's model allowlist on a connection and cannot
-		// enumerate the environments it will serve, so it needs a room it can
-		// hold one subscription open to. Same shape egress_rules already uses.
+		Event:   environmentUpdatedEvent,
 		Rooms:   []string{fmt.Sprintf("environment:%s", environmentID), environmentsRoom},
 		Payload: payload,
 		Source:  "agents",
