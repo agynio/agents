@@ -25,7 +25,11 @@ const (
 )
 
 var (
-	sandboxNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+	// A valid DNS label. The Expose service puts the sandbox name in a
+	// hostname -- an exposed port is reachable at <sandbox>.<org-slug>.agyn --
+	// so leading and trailing hyphens, which the previous ^[a-z0-9-]+$ allowed
+	// and a hostname rejects, are not usable names.
+	sandboxNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 	sandboxAdjectives  = []string{"brave", "calm", "eager", "gentle", "lucky", "nimble", "quiet", "rapid"}
 	sandboxNouns       = []string{"badger", "falcon", "otter", "panda", "raven", "tiger", "yak", "zebra"}
 )

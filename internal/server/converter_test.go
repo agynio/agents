@@ -75,6 +75,12 @@ func TestValidateSandboxName(t *testing.T) {
 		{name: "Brave", wantErr: true},
 		{name: "brave_otter", wantErr: true},
 		{name: strings.Repeat("a", 64), wantErr: true},
+		// The name is a hostname label in an exposed port's address.
+		{name: "-brave", wantErr: true},
+		{name: "brave-", wantErr: true},
+		{name: "-", wantErr: true},
+		{name: "a"},
+		{name: strings.Repeat("a", 63)},
 	}
 
 	for _, test := range tests {
