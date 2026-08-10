@@ -111,6 +111,10 @@ func (s *Server) publishSandboxUpdated(ctx context.Context, sandbox store.Sandbo
 		Rooms: []string{
 			fmt.Sprintf("sandbox_owner:%s", sandbox.OwnerID),
 			fmt.Sprintf("sandbox_org:%s", sandbox.OrganizationID),
+			// Keyed by the sandbox rather than its owner, so it also reaches a
+			// viewer who is not the owner -- the detail view of a sandbox an
+			// organization owner did not create.
+			fmt.Sprintf("sandbox:%s", sandbox.Meta.ID),
 		},
 		Payload: payload,
 		Source:  "agents",

@@ -47,6 +47,7 @@ func TestPublishSandboxUpdatedIncludesSnapshotPayload(t *testing.T) {
 	assertRooms(t, request.GetRooms(), []string{
 		"sandbox_owner:" + sandbox.OwnerID.String(),
 		"sandbox_org:" + sandbox.OrganizationID.String(),
+		"sandbox:" + sandbox.Meta.ID.String(),
 	})
 	fields := request.GetPayload().GetFields()
 	assertStringField(t, fields, "sandbox_id", sandbox.Meta.ID.String())
