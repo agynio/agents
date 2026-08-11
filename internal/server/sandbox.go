@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"regexp"
 	"strings"
@@ -493,6 +494,13 @@ func (s *Server) DeleteSandbox(ctx context.Context, req *agentsv1.DeleteSandboxR
 	sandbox, err = s.store.UpdateSandbox(ctx, sandbox.Meta.ID, store.SandboxUpdate{Status: &terminated})
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	// Layouts go even though the record stays. `terminated` retains a sandbox
+	// for usage history, and a set of tabs is not usage history -- nobody will
+	// ever reopen it. A sandbox that merely stopped keeps them, which is the
+	// whole reason they are stored out here.
+	if err := s.store.DeleteSandboxLayouts(ctx, sandbox.Meta.ID); err != nil {
+		log.Printf("delete sandbox layouts %s: %v", sandbox.Meta.ID, err)
 	}
 	s.publishSandboxUpdated(ctx, sandbox)
 	return &agentsv1.DeleteSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil
