@@ -130,4 +130,3 @@ func agentIDForMcp(ctx context.Context, tx pgx.Tx, mcpID uuid.UUID) (uuid.UUID, 
 	}
 	return agentID, nil
 }
-

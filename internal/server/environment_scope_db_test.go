@@ -24,6 +24,8 @@ func TestEnvironmentScopedListsAreScoped(t *testing.T) {
 	mustCreateMcp(ctx, t, server, second, "beta")
 	mustCreateVolume(ctx, t, server, first, "data", "/data")
 	mustCreateVolume(ctx, t, server, second, "cache", "/cache")
+	mustCreateInitScript(ctx, t, server, first, "echo first")
+	mustCreateInitScript(ctx, t, server, second, "echo second")
 
 	mcps, err := server.ListMcps(ctx, &agentsv1.ListMcpsRequest{EnvironmentId: first})
 	if err != nil {
@@ -45,8 +47,8 @@ func TestEnvironmentScopedListsAreScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list init scripts: %v", err)
 	}
-	if len(scripts.GetInitScripts()) != 0 {
-		t.Fatalf("expected no scripts on the first environment, got %d", len(scripts.GetInitScripts()))
+	if len(scripts.GetInitScripts()) != 1 || scripts.GetInitScripts()[0].GetScript() != "echo first" {
+		t.Fatalf("expected only the first environment's script, got %d", len(scripts.GetInitScripts()))
 	}
 }
 
@@ -56,6 +58,16 @@ func mustCreateMcp(ctx context.Context, t *testing.T, server *Server, environmen
 		EnvironmentId: environmentID, Name: name, Command: "run",
 	}); err != nil {
 		t.Fatalf("create mcp %s: %v", name, err)
+	}
+}
+
+func mustCreateInitScript(ctx context.Context, t *testing.T, server *Server, environmentID, script string) {
+	t.Helper()
+	if _, err := server.CreateInitScript(ctx, &agentsv1.CreateInitScriptRequest{
+		Target: &agentsv1.CreateInitScriptRequest_EnvironmentId{EnvironmentId: environmentID},
+		Script: script,
+	}); err != nil {
+		t.Fatalf("create init script %q: %v", script, err)
 	}
 }
 
