@@ -336,6 +336,28 @@ func (s *Server) requireAgentRelation(ctx context.Context, identityID uuid.UUID,
 		status.Errorf(codes.PermissionDenied, "identity lacks %s on agent", relation))
 }
 
+// requireAgentManageRoles gates reading and changing who holds a role on an
+// agent. Reading the role list is as sensitive as writing it -- it names the
+// identities that can reach the agent -- so the spec gives both the same
+// relation. Neither has an internal caller.
+func (s *Server) requireAgentManageRoles(ctx context.Context, agentID uuid.UUID) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.requireAgentRelation(ctx, identityID, agentID, "can_manage_roles")
+}
+
+// requireAgentDelete gates removing an agent, which the spec puts behind the
+// same relation as changing its availability.
+func (s *Server) requireAgentDelete(ctx context.Context, agentID uuid.UUID) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.requireAgentRelation(ctx, identityID, agentID, "can_delete")
+}
+
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
 	return s.requireAllowed(ctx, identityID, relation, organizationPrefix+organizationID.String(), status.Errorf(codes.PermissionDenied, "identity lacks %s on organization", relation))
 }

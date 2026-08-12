@@ -179,6 +179,9 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
 	}
+	if err := s.requireOrganizationRelation(ctx, creatorID, organizationID, "owner"); err != nil {
+		return nil, err
+	}
 	idleTimeout := defaultIdleTimeout
 	if req.IdleTimeout != nil {
 		idleTimeout = req.GetIdleTimeout()
@@ -372,12 +375,21 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	var previousAgent store.Agent
 	var nicknameValue string
 	var nicknameUpdateNeeded bool
-	// An environment is checked against the agent's organization, which only the
-	// stored agent names.
-	if nicknameProvided || availabilityProvided || environmentProvided || modelProvided {
-		previousAgent, err = s.store.GetAgent(ctx, id)
-		if err != nil {
-			return nil, toStatusError(err)
+	// Unconditional: an environment is checked against the agent's organization,
+	// which only the stored agent names, and NotFound has to precede
+	// PermissionDenied for a caller naming an agent that does not exist.
+	previousAgent, err = s.store.GetAgent(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, &id, nil, nil); err != nil {
+		return nil, err
+	}
+	// Availability decides who may reach the agent at all, which the spec puts
+	// with deletion rather than with the rest of the configuration.
+	if availabilityProvided {
+		if err := s.requireAgentDelete(ctx, id); err != nil {
+			return nil, err
 		}
 	}
 	if nicknameProvided {
@@ -528,6 +540,9 @@ func (s *Server) DeleteAgent(ctx context.Context, req *agentsv1.DeleteAgentReque
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireAgentDelete(ctx, id); err != nil {
+		return nil, err
+	}
 	hasInstances, err := s.store.HasNonTerminatedAgentInstances(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
@@ -598,6 +613,11 @@ func (s *Server) SetAgentRole(ctx context.Context, req *agentsv1.SetAgentRoleReq
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireAgentManageRoles(ctx, agentID); err != nil {
+		return nil, err
+	}
+	// The grantee must also be a member: the caller's own permission says
+	// nothing about whether the identity being granted belongs here.
 	if err := s.requireOrganizationMember(ctx, identityID, agent.OrganizationID); err != nil {
 		return nil, status.Errorf(status.Code(err), "organization membership check failed: %v", err)
 	}
@@ -642,6 +662,13 @@ func (s *Server) RemoveAgentRole(ctx context.Context, req *agentsv1.RemoveAgentR
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
 	}
+	// Before the mutation, which the handler used to reach first.
+	if _, err := s.store.GetAgent(ctx, agentID); err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireAgentManageRoles(ctx, agentID); err != nil {
+		return nil, err
+	}
 	assignment, err := s.store.DeleteAgentRole(ctx, agentID, identityID)
 	if err != nil {
 		return nil, toStatusError(err)
@@ -659,6 +686,9 @@ func (s *Server) ListAgentRoles(ctx context.Context, req *agentsv1.ListAgentRole
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	if err := s.requireAgentManageRoles(ctx, agentID); err != nil {
+		return nil, err
 	}
 	assignments, err := s.store.ListAgentRoles(ctx, agentID)
 	if err != nil {
