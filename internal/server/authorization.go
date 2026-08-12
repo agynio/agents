@@ -127,6 +127,85 @@ func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.
 	return s.requireEnvironmentRelation(ctx, identityID, environment.Meta.ID, "can_edit_config")
 }
 
+// configParent is the object a sub-resource is authorized through. Volumes,
+// MCPs, init scripts and ENVs hold no tuples of their own; exactly one of these
+// is set.
+type configParent struct {
+	agentID       *uuid.UUID
+	environmentID *uuid.UUID
+}
+
+// resolveConfigParent names the agent or environment a sub-resource belongs to,
+// taking the three target pointers in the order publishAgentUpdatedForConfigTarget
+// reads them so both pick the same parent for a row. An MCP is itself a
+// sub-resource, so an MCP target resolves on to the MCP's own parent.
+//
+// It fails closed. envs lost its target CHECK with the hook_id column, so a row
+// naming nothing is reachable, and there is no parent to authorize it against.
+func (s *Server) resolveConfigParent(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) (configParent, error) {
+	if environmentID != nil {
+		return configParent{environmentID: environmentID}, nil
+	}
+	if agentID != nil {
+		return configParent{agentID: agentID}, nil
+	}
+	if mcpID != nil {
+		mcp, err := s.store.GetMcp(ctx, *mcpID)
+		if err != nil {
+			return configParent{}, toStatusError(err)
+		}
+		if mcp.EnvironmentID != nil {
+			return configParent{environmentID: mcp.EnvironmentID}, nil
+		}
+		if mcp.AgentID != nil {
+			return configParent{agentID: mcp.AgentID}, nil
+		}
+	}
+	return configParent{}, status.Error(codes.FailedPrecondition, "resource names no agent or environment to authorize against")
+}
+
+func (s *Server) requireConfigRelation(ctx context.Context, identityID uuid.UUID, parent configParent, relation string) error {
+	if parent.agentID != nil {
+		return s.requireAgentRelation(ctx, identityID, *parent.agentID, relation)
+	}
+	return s.requireEnvironmentRelation(ctx, identityID, *parent.environmentID, relation)
+}
+
+// requireConfigRead authorizes reading a sub-resource through its parent, and is
+// the counterpart of requireEnvironmentConfigRead for rows an agent may own. An
+// internal caller holds no tuples and is served before the parent is resolved,
+// so the Orchestrator pays no extra lookup while assembling workloads.
+func (s *Server) requireConfigRead(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	parent, err := s.resolveConfigParent(ctx, agentID, mcpID, environmentID)
+	if err != nil {
+		return err
+	}
+	return s.requireConfigRelation(ctx, identityID, parent, "can_read_config")
+}
+
+// requireConfigWrite authorizes changing a sub-resource through its parent.
+// These RPCs have no internal callers, so an identity is required. It takes ids
+// rather than a loaded row so a handler need not read a parent purely to
+// authorize.
+func (s *Server) requireConfigWrite(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	parent, err := s.resolveConfigParent(ctx, agentID, mcpID, environmentID)
+	if err != nil {
+		return err
+	}
+	return s.requireConfigRelation(ctx, identityID, parent, "can_edit_config")
+}
+
 // requireEnvironmentUse gates running a workload in an environment. A shell in
 // a sandbox there reaches the environment's secrets, egress credentials and
 // volume contents, so this is a grant rather than a consequence of visibility.
@@ -250,6 +329,11 @@ func (s *Server) removeEnvironmentRoleAuthorization(ctx context.Context, environ
 func (s *Server) requireEnvironmentRelation(ctx context.Context, identityID uuid.UUID, environmentID uuid.UUID, relation string) error {
 	return s.requireAllowed(ctx, identityID, relation, environmentPrefix+environmentID.String(),
 		status.Errorf(codes.PermissionDenied, "identity lacks %s on environment", relation))
+}
+
+func (s *Server) requireAgentRelation(ctx context.Context, identityID uuid.UUID, agentID uuid.UUID, relation string) error {
+	return s.requireAllowed(ctx, identityID, relation, agentPrefix+agentID.String(),
+		status.Errorf(codes.PermissionDenied, "identity lacks %s on agent", relation))
 }
 
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
