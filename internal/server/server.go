@@ -857,16 +857,16 @@ func (s *Server) DeleteVolume(ctx context.Context, req *agentsv1.DeleteVolumeReq
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	agentIDs, err := s.store.ListAgentIDsForVolume(ctx, id)
+	// Read before the delete: the target names who to notify, and it is gone
+	// with the row.
+	volume, err := s.store.GetVolume(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
 	}
 	if err := s.store.DeleteVolume(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	for _, agentID := range agentIDs {
-		s.publishAgentUpdatedByID(ctx, agentID)
-	}
+	s.publishVolumeTargetUpdated(ctx, volume)
 	return &agentsv1.DeleteVolumeResponse{}, nil
 }
 
