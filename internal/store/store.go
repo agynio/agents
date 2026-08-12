@@ -685,10 +685,6 @@ func (s *Store) ListVolumes(ctx context.Context, organizationID uuid.UUID, filte
 	return VolumeListResult{Volumes: volumes, NextCursor: nextCursor}, nil
 }
 
-func (s *Store) ListAgentIDsForVolume(ctx context.Context, volumeID uuid.UUID) ([]uuid.UUID, error) {
-	return agentIDsForVolume(ctx, s.pool, volumeID)
-}
-
 func nonNilStrings(values []string) []string {
 	if values == nil {
 		return []string{}
