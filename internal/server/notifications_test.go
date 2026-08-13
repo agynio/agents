@@ -48,6 +48,7 @@ func TestPublishSandboxUpdatedIncludesSnapshotPayload(t *testing.T) {
 		"sandbox_owner:" + sandbox.OwnerID.String(),
 		"sandbox_org:" + sandbox.OrganizationID.String(),
 		"sandbox:" + sandbox.Meta.ID.String(),
+		"sandboxes",
 	})
 	fields := request.GetPayload().GetFields()
 	assertStringField(t, fields, "sandbox_id", sandbox.Meta.ID.String())
@@ -113,6 +114,61 @@ func TestSandboxRuntimeStateUpdatedResponsePublishesNotification(t *testing.T) {
 	}
 	fields := notifications.published[0].GetPayload().GetFields()
 	assertStringField(t, fields, "status", string(store.SandboxStatusStopped))
+}
+
+// Every instance lifecycle event reaches the cluster-wide room as well as the
+// instance's own. Without it the Orchestrator would have to subscribe per
+// instance, which cannot cover an instance created after it last looked.
+func TestPublishInstanceUpdatedReachesThePlatformRoom(t *testing.T) {
+	notifications := &recordingNotificationsClient{}
+	server := &Server{notifications: notifications}
+	instance := store.AgentInstance{
+		Meta:           store.EntityMeta{ID: uuid.New()},
+		AgentID:        uuid.New(),
+		OrganizationID: uuid.New(),
+		State:          store.AgentInstanceStateActive,
+	}
+
+	server.publishInstanceUpdated(context.Background(), instance)
+
+	if len(notifications.published) != 1 {
+		t.Fatalf("expected 1 publish request, got %d", len(notifications.published))
+	}
+	assertRooms(t, notifications.published[0].GetRooms(), []string{
+		"agent_instance:" + instance.Meta.ID.String(),
+		"agent_instances",
+	})
+}
+
+// The instance is woken through its own inbox room; the Orchestrator is woken
+// through the cluster-wide room. Dropping the second leaves an instance with
+// work waiting and no workload to do it until the next reconcile tick.
+func TestPublishInboxItemCreatedReachesTheInstanceAndThePlatform(t *testing.T) {
+	notifications := &recordingNotificationsClient{}
+	server := &Server{notifications: notifications}
+	item := store.InboxItem{
+		ID:              uuid.New(),
+		AgentInstanceID: uuid.New(),
+		SourceKind:      store.InboxItemSourceKindThread,
+	}
+
+	server.publishInboxItemCreated(context.Background(), item)
+
+	if len(notifications.published) != 1 {
+		t.Fatalf("expected 1 publish request, got %d", len(notifications.published))
+	}
+	request := notifications.published[0]
+	if request.GetEvent() != inboxItemCreatedEvent {
+		t.Fatalf("expected event %q, got %q", inboxItemCreatedEvent, request.GetEvent())
+	}
+	assertRooms(t, request.GetRooms(), []string{
+		"instance_inbox:" + item.AgentInstanceID.String(),
+		"agent_instances",
+	})
+	fields := request.GetPayload().GetFields()
+	assertStringField(t, fields, "inbox_item_id", item.ID.String())
+	assertStringField(t, fields, "agent_instance_id", item.AgentInstanceID.String())
+	assertStringField(t, fields, "source_kind", string(item.SourceKind))
 }
 
 type recordingNotificationsClient struct {

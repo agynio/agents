@@ -450,3 +450,56 @@ func TestGetSandboxServesTheInternalCallerWithoutAnIdentity(t *testing.T) {
 		t.Fatal("expected no identity for an internal caller")
 	}
 }
+
+// The Orchestrator reads an instance's inbox to learn which thread it was
+// handed work for. It used to send that instance's own id as the caller; as
+// itself it carries cluster admin, and that is what admits it.
+func TestSelfInstanceOrPlatformAdmitsClusterAdmin(t *testing.T) {
+	platformID := uuid.New()
+	instanceID := uuid.New()
+	server := &Server{authz: &recordingAuthorizationWriter{}}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-identity-id", platformID.String(),
+		"x-identity-type", "platform",
+	))
+
+	if err := server.requireSelfInstanceOrPlatform(ctx, instanceID); err != nil {
+		t.Fatalf("expected the platform to be admitted: %v", err)
+	}
+}
+
+// Claiming the type is not holding the relation.
+func TestSelfInstanceOrPlatformRefusesPlatformWithoutClusterAdmin(t *testing.T) {
+	server := &Server{authz: &recordingAuthorizationWriter{deniedRelations: map[string]bool{"admin": true}}}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-identity-id", uuid.New().String(),
+		"x-identity-type", "platform",
+	))
+
+	if err := server.requireSelfInstanceOrPlatform(ctx, uuid.New()); err == nil {
+		t.Fatal("expected a caller without cluster admin to be refused")
+	}
+}
+
+// Another instance is still another instance, whatever it says it is.
+func TestSelfInstanceOrPlatformRefusesAnotherInstance(t *testing.T) {
+	server := &Server{authz: &recordingAuthorizationWriter{}}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-identity-id", uuid.New().String(),
+		"x-identity-type", "agent_instance",
+	))
+
+	if err := server.requireSelfInstanceOrPlatform(ctx, uuid.New()); err == nil {
+		t.Fatal("expected one instance reading another's inbox to be refused")
+	}
+}
+
+func TestSelfInstanceOrPlatformAdmitsTheInstanceItself(t *testing.T) {
+	instanceID := uuid.New()
+	server := &Server{authz: &recordingAuthorizationWriter{}}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-identity-id", instanceID.String()))
+
+	if err := server.requireSelfInstanceOrPlatform(ctx, instanceID); err != nil {
+		t.Fatalf("expected the instance itself to be admitted: %v", err)
+	}
+}
