@@ -98,8 +98,9 @@ func TestAddSandboxAuthorizationWritesOrgAndOwner(t *testing.T) {
 	sandboxID := uuid.New()
 	organizationID := uuid.New()
 	ownerID := uuid.New()
+	environmentID := uuid.New()
 
-	if err := server.addSandboxAuthorization(context.Background(), sandboxID, organizationID, ownerID); err != nil {
+	if err := server.addSandboxAuthorization(context.Background(), sandboxID, organizationID, ownerID, environmentID); err != nil {
 		t.Fatalf("add sandbox authorization: %v", err)
 	}
 
@@ -108,8 +109,55 @@ func TestAddSandboxAuthorizationWritesOrgAndOwner(t *testing.T) {
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
 		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
+		sandboxHolderIdentityTuple(sandboxID),
+		sandboxEnvironmentTuple(sandboxID, environmentID),
 	})
 	assertTuples(t, request.GetDeletes(), nil)
+}
+
+// The holder chain is what lets the workload read the init scripts it must
+// run, so assert the literal tuples rather than re-deriving them.
+func TestSandboxHolderReachesItsEnvironmentConfig(t *testing.T) {
+	authz := &recordingAuthorizationWriter{}
+	server := &Server{authz: authz}
+	sandboxID := uuid.New()
+	environmentID := uuid.New()
+
+	if err := server.addSandboxAuthorization(context.Background(), sandboxID, uuid.New(), uuid.New(), environmentID); err != nil {
+		t.Fatalf("add sandbox authorization: %v", err)
+	}
+
+	writes := singleWriteRequest(t, authz).GetWrites()
+	holder := tupleWithRelation(writes, "holder")
+	if holder == nil {
+		t.Fatal("expected the sandbox workload to be written as its own holder")
+	}
+	if holder.GetUser() != "identity:"+sandboxID.String() {
+		t.Fatalf("expected the sandbox's own identity, got %q", holder.GetUser())
+	}
+	if holder.GetObject() != "sandbox:"+sandboxID.String() {
+		t.Fatalf("expected the holder tuple on the sandbox, got %q", holder.GetObject())
+	}
+
+	environment := tupleWithRelation(writes, "sandbox")
+	if environment == nil {
+		t.Fatal("expected the sandbox to be written onto its environment")
+	}
+	if environment.GetUser() != "sandbox:"+sandboxID.String() {
+		t.Fatalf("expected the sandbox as the user, got %q", environment.GetUser())
+	}
+	if environment.GetObject() != "environment:"+environmentID.String() {
+		t.Fatalf("expected the sandbox's own environment, got %q", environment.GetObject())
+	}
+}
+
+func tupleWithRelation(tuples []*authorizationv1.TupleKey, relation string) *authorizationv1.TupleKey {
+	for _, tuple := range tuples {
+		if tuple.GetRelation() == relation {
+			return tuple
+		}
+	}
+	return nil
 }
 
 // The workload's access comes from this tuple, not from its identity type, so
@@ -120,16 +168,11 @@ func TestSandboxIdentityBecomesOrganizationMember(t *testing.T) {
 	sandboxID := uuid.New()
 	organizationID := uuid.New()
 
-	if err := server.addSandboxAuthorization(context.Background(), sandboxID, organizationID, uuid.New()); err != nil {
+	if err := server.addSandboxAuthorization(context.Background(), sandboxID, organizationID, uuid.New(), uuid.New()); err != nil {
 		t.Fatalf("add sandbox authorization: %v", err)
 	}
 
-	var found *authorizationv1.TupleKey
-	for _, tuple := range singleWriteRequest(t, authz).GetWrites() {
-		if tuple.GetRelation() == "member" {
-			found = tuple
-		}
-	}
+	found := tupleWithRelation(singleWriteRequest(t, authz).GetWrites(), "member")
 	if found == nil {
 		t.Fatal("expected the sandbox workload to be written as an organization member")
 	}
@@ -147,8 +190,9 @@ func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
 	sandboxID := uuid.New()
 	organizationID := uuid.New()
 	ownerID := uuid.New()
+	environmentID := uuid.New()
 
-	if err := server.removeSandboxAuthorization(context.Background(), sandboxID, organizationID, ownerID); err != nil {
+	if err := server.removeSandboxAuthorization(context.Background(), sandboxID, organizationID, ownerID, environmentID); err != nil {
 		t.Fatalf("remove sandbox authorization: %v", err)
 	}
 
@@ -158,6 +202,8 @@ func TestRemoveSandboxAuthorizationDeletesOrgAndOwner(t *testing.T) {
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
 		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
+		sandboxHolderIdentityTuple(sandboxID),
+		sandboxEnvironmentTuple(sandboxID, environmentID),
 	})
 }
 

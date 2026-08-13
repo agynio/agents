@@ -335,7 +335,7 @@ func (s *Server) CreateSandbox(ctx context.Context, req *agentsv1.CreateSandboxR
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	if err := s.addSandboxAuthorization(ctx, sandbox.Meta.ID, sandbox.OrganizationID, sandbox.OwnerID); err != nil {
+	if err := s.addSandboxAuthorization(ctx, sandbox.Meta.ID, sandbox.OrganizationID, sandbox.OwnerID, sandbox.EnvironmentID); err != nil {
 		if rollbackErr := s.store.DeleteSandboxRecord(ctx, sandbox.Meta.ID); rollbackErr != nil {
 			return nil, status.Errorf(codes.Internal, "authorization failed: %v; rollback failed: %v", err, rollbackErr)
 		}

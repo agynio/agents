@@ -528,19 +528,23 @@ func (s *Server) removeAgentInstanceAuthorization(ctx context.Context, instance 
 	})
 }
 
-func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID) error {
+func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID, environmentID uuid.UUID) error {
 	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
 		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
+		sandboxHolderIdentityTuple(sandboxID),
+		sandboxEnvironmentTuple(sandboxID, environmentID),
 	}, nil)
 }
 
-func (s *Server) removeSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID) error {
+func (s *Server) removeSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID, environmentID uuid.UUID) error {
 	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
 		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
+		sandboxHolderIdentityTuple(sandboxID),
+		sandboxEnvironmentTuple(sandboxID, environmentID),
 	})
 }
 
@@ -666,6 +670,29 @@ func sandboxOwnerTuple(sandboxID uuid.UUID, ownerID uuid.UUID) *authorizationv1.
 		User:     identityPrefix + ownerID.String(),
 		Relation: "owner",
 		Object:   sandboxPrefix + sandboxID.String(),
+	}
+}
+
+// sandboxHolderIdentityTuple names the identity the sandbox workload
+// authenticates as, which is how it reads the environment it was started from.
+// Distinct from the owner: the workload holds this for its whole life, and the
+// person who started it is not who is asking.
+func sandboxHolderIdentityTuple(sandboxID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + sandboxID.String(),
+		Relation: "holder",
+		Object:   sandboxPrefix + sandboxID.String(),
+	}
+}
+
+// sandboxEnvironmentTuple reaches the environment's config from the sandboxes
+// started in it, so a holder reads the init scripts it must run. The mirror of
+// agentEnvironmentTuple, for the workload that carries no agent.
+func sandboxEnvironmentTuple(sandboxID uuid.UUID, environmentID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     sandboxPrefix + sandboxID.String(),
+		Relation: "sandbox",
+		Object:   environmentPrefix + environmentID.String(),
 	}
 }
 
