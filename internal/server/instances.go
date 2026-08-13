@@ -459,7 +459,7 @@ func (s *Server) GetUnackedInboxItems(ctx context.Context, req *agentsv1.GetUnac
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_instance_id: %v", err)
 	}
-	if err := requireSelfInstance(ctx, instanceID); err != nil {
+	if err := s.requireSelfInstanceOrPlatform(ctx, instanceID); err != nil {
 		return nil, err
 	}
 	cursor, err := decodeInboxPageCursor(req.GetPageToken())
@@ -571,7 +571,7 @@ func (s *Server) GetUnackedInboxCount(ctx context.Context, req *agentsv1.GetUnac
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_instance_id: %v", err)
 	}
-	if err := requireSelfInstance(ctx, instanceID); err != nil {
+	if err := s.requireSelfInstanceOrPlatform(ctx, instanceID); err != nil {
 		return nil, err
 	}
 	var threadID *uuid.UUID
@@ -662,6 +662,38 @@ func requireSelfInstance(ctx context.Context, instanceID uuid.UUID) error {
 	}
 	if identityID != instanceID.String() {
 		return status.Error(codes.PermissionDenied, "caller must be the agent instance")
+	}
+	return nil
+}
+
+// requireSelfInstanceOrPlatform admits the instance itself, or the platform.
+//
+// The Orchestrator has to know which thread an instance was handed work for
+// before it can place a workload to do it, and it is not that instance. It used
+// to send the instance's own id as the caller to get past the check above,
+// which is a platform service claiming to be the thing it manages. As itself it
+// carries cluster admin, and that is what admits it here.
+//
+// Reads only. Acking is the instance saying it has handled its own message and
+// stays exactly that -- see AckInboxItems, which keeps requireSelfInstance.
+func (s *Server) requireSelfInstanceOrPlatform(ctx context.Context, instanceID uuid.UUID) error {
+	selfErr := requireSelfInstance(ctx, instanceID)
+	if selfErr == nil {
+		return nil
+	}
+	if identityTypeFromContext(ctx) != platformIdentityType {
+		return selfErr
+	}
+	identityID, err := identityIDFromContext(ctx)
+	if err != nil {
+		return selfErr
+	}
+	callerID, err := uuid.Parse(identityID)
+	if err != nil {
+		return selfErr
+	}
+	if err := s.requireAllowed(ctx, callerID, clusterAdminRelation, clusterObject, selfErr); err != nil {
+		return err
 	}
 	return nil
 }

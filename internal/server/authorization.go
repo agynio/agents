@@ -16,6 +16,11 @@ import (
 const (
 	identityPrefix      = "identity:"
 	organizationPrefix  = "organization:"
+	// The platform's own identity, and the relation that settles its claim. The
+	// type is metadata and proves nothing on its own.
+	platformIdentityType = "platform"
+	clusterAdminRelation = "admin"
+	clusterObject        = "cluster:global"
 	agentPrefix         = "agent:"
 	agentInstancePrefix = "agent_instance:"
 	sandboxPrefix       = "sandbox:"
@@ -662,4 +667,12 @@ func sandboxOwnerTuple(sandboxID uuid.UUID, ownerID uuid.UUID) *authorizationv1.
 		Relation: "owner",
 		Object:   sandboxPrefix + sandboxID.String(),
 	}
+}
+
+func identityTypeFromContext(ctx context.Context) string {
+	identityType, ok := metadataValueFromIncomingContext(ctx, "x-identity-type")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(identityType)
 }
