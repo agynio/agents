@@ -117,6 +117,7 @@ func toProtoEnvironment(environment store.Environment) *agentsv1.Environment {
 	}
 	proto.LlmMode = toProtoLLMMode(environment.LLMMode)
 	proto.LlmAllowedModels = append([]string(nil), environment.LLMAllowedModels...)
+	proto.PersistentShells = environment.PersistentShells
 	return proto
 }
 

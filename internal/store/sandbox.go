@@ -15,8 +15,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 		fmt.Sprintf(`INSERT INTO environments
 		 (organization_id, name, image, runner_id, flavor,
 		  workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability,
-		  llm_mode, llm_allowed_models)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		  llm_mode, llm_allowed_models, persistent_shells)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, TRUE))
 		 RETURNING %s`, environmentColumns),
 		organizationID,
 		input.Name,
@@ -30,6 +30,7 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 		input.Availability,
 		input.LLMMode,
 		input.LLMAllowedModels,
+		input.PersistentShells,
 	)
 	environment, err := scanEnvironment(row)
 	if err != nil {
@@ -91,6 +92,9 @@ func (s *Store) UpdateEnvironment(ctx context.Context, id uuid.UUID, update Envi
 	}
 	if update.LLMAllowedModels != nil {
 		builder.add("llm_allowed_models", *update.LLMAllowedModels)
+	}
+	if update.PersistentShells != nil {
+		builder.add("persistent_shells", *update.PersistentShells)
 	}
 	if builder.empty() {
 		return Environment{}, fmt.Errorf("environment update requires at least one field")
