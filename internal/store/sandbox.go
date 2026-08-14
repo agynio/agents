@@ -29,7 +29,7 @@ func (s *Store) CreateEnvironment(ctx context.Context, organizationID uuid.UUID,
 		input.AgentRuntimeImageTag,
 		input.Availability,
 		input.LLMMode,
-		nonNilStrings(input.LLMAllowedModels),
+		input.LLMAllowedModels,
 		input.PersistentShells,
 	)
 	environment, err := scanEnvironment(row)

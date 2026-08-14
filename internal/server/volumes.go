@@ -55,6 +55,19 @@ func resolveVolumeSize(size string, persistent bool) (*string, bool, error) {
 	return &trimmed, true, nil
 }
 
+// requireVolumeWrite authorizes changing a volume through the target that owns
+// it. A volume carries no tuples of its own.
+func (s *Server) requireVolumeWrite(ctx context.Context, volume store.Volume) error {
+	if volume.EnvironmentID != nil {
+		environment, err := s.store.GetEnvironment(ctx, *volume.EnvironmentID)
+		if err != nil {
+			return toStatusError(err)
+		}
+		return s.requireEnvironmentWrite(ctx, environment)
+	}
+	return nil
+}
+
 // ListVolumeAttachments serves orchestrators released before volumes moved onto
 // environments. An agent's attachments are its environment's volumes and an
 // MCP's are its own, so an old orchestrator mounts the same volumes a new one
@@ -70,11 +83,6 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		agent, err := s.store.GetAgent(ctx, agentID)
 		if err != nil {
 			return nil, toStatusError(err)
-		}
-		// Before the early return: an agent in no environment would otherwise
-		// answer an unauthorized caller, which tells it the agent exists.
-		if err := s.requireConfigRead(ctx, &agentID, nil, nil); err != nil {
-			return nil, err
 		}
 		if agent.EnvironmentID == nil {
 			return &agentsv1.ListVolumeAttachmentsResponse{}, nil
@@ -96,9 +104,6 @@ func (s *Server) ListVolumeAttachments(ctx context.Context, req *agentsv1.ListVo
 		mcp, err := s.store.GetMcp(ctx, mcpID)
 		if err != nil {
 			return nil, toStatusError(err)
-		}
-		if err := s.requireConfigRead(ctx, mcp.AgentID, nil, mcp.EnvironmentID); err != nil {
-			return nil, err
 		}
 		result, err := s.store.ListVolumes(ctx, mcp.OrganizationID, store.VolumeFilter{McpID: &mcpID}, 0, nil)
 		if err != nil {

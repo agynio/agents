@@ -145,6 +145,17 @@ func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
 }
 
+func (s *Server) publishAgentUpdatedForVolume(ctx context.Context, volumeID uuid.UUID) {
+	agentIDs, err := s.store.ListAgentIDsForVolume(ctx, volumeID)
+	if err != nil {
+		log.Printf("agents: list volume agents: %v", err)
+		return
+	}
+	for _, agentID := range agentIDs {
+		s.publishAgentUpdatedByID(ctx, agentID)
+	}
+}
+
 // publishAgentUpdatedForConfigTarget notifies the agent whose configuration the
 // row is part of. A row on an environment is part of no agent's configuration —
 // an environment belongs to an organization — and there is nothing to notify.

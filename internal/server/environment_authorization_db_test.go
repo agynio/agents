@@ -50,9 +50,6 @@ func seedEnvironment(ctx context.Context, t *testing.T, backing *store.Store, or
 		RunnerID:     &runnerID,
 		Flavor:       "small",
 		Availability: store.EnvironmentAvailabilityPrivate,
-		// The column is CHECK-constrained; the handler defaults it, so a seed
-		// going straight to the store has to name it.
-		LLMMode: store.LLMModePlatform,
 	})
 	if err != nil {
 		t.Fatalf("seed environment: %v", err)
