@@ -16,6 +16,11 @@ import (
 const (
 	identityPrefix      = "identity:"
 	organizationPrefix  = "organization:"
+	// The platform's own identity, and the relation that settles its claim. The
+	// type is metadata and proves nothing on its own.
+	platformIdentityType = "platform"
+	clusterAdminRelation = "admin"
+	clusterObject        = "cluster:global"
 	agentPrefix         = "agent:"
 	agentInstancePrefix = "agent_instance:"
 	sandboxPrefix       = "sandbox:"
@@ -125,6 +130,85 @@ func (s *Server) requireEnvironmentWrite(ctx context.Context, environment store.
 		return err
 	}
 	return s.requireEnvironmentRelation(ctx, identityID, environment.Meta.ID, "can_edit_config")
+}
+
+// configParent is the object a sub-resource is authorized through. Volumes,
+// MCPs, init scripts and ENVs hold no tuples of their own; exactly one of these
+// is set.
+type configParent struct {
+	agentID       *uuid.UUID
+	environmentID *uuid.UUID
+}
+
+// resolveConfigParent names the agent or environment a sub-resource belongs to,
+// taking the three target pointers in the order publishAgentUpdatedForConfigTarget
+// reads them so both pick the same parent for a row. An MCP is itself a
+// sub-resource, so an MCP target resolves on to the MCP's own parent.
+//
+// It fails closed. envs lost its target CHECK with the hook_id column, so a row
+// naming nothing is reachable, and there is no parent to authorize it against.
+func (s *Server) resolveConfigParent(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) (configParent, error) {
+	if environmentID != nil {
+		return configParent{environmentID: environmentID}, nil
+	}
+	if agentID != nil {
+		return configParent{agentID: agentID}, nil
+	}
+	if mcpID != nil {
+		mcp, err := s.store.GetMcp(ctx, *mcpID)
+		if err != nil {
+			return configParent{}, toStatusError(err)
+		}
+		if mcp.EnvironmentID != nil {
+			return configParent{environmentID: mcp.EnvironmentID}, nil
+		}
+		if mcp.AgentID != nil {
+			return configParent{agentID: mcp.AgentID}, nil
+		}
+	}
+	return configParent{}, status.Error(codes.FailedPrecondition, "resource names no agent or environment to authorize against")
+}
+
+func (s *Server) requireConfigRelation(ctx context.Context, identityID uuid.UUID, parent configParent, relation string) error {
+	if parent.agentID != nil {
+		return s.requireAgentRelation(ctx, identityID, *parent.agentID, relation)
+	}
+	return s.requireEnvironmentRelation(ctx, identityID, *parent.environmentID, relation)
+}
+
+// requireConfigRead authorizes reading a sub-resource through its parent, and is
+// the counterpart of requireEnvironmentConfigRead for rows an agent may own. An
+// internal caller holds no tuples and is served before the parent is resolved,
+// so the Orchestrator pays no extra lookup while assembling workloads.
+func (s *Server) requireConfigRead(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) error {
+	identityID, hasIdentity, err := optionalIdentityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !hasIdentity {
+		return nil
+	}
+	parent, err := s.resolveConfigParent(ctx, agentID, mcpID, environmentID)
+	if err != nil {
+		return err
+	}
+	return s.requireConfigRelation(ctx, identityID, parent, "can_read_config")
+}
+
+// requireConfigWrite authorizes changing a sub-resource through its parent.
+// These RPCs have no internal callers, so an identity is required. It takes ids
+// rather than a loaded row so a handler need not read a parent purely to
+// authorize.
+func (s *Server) requireConfigWrite(ctx context.Context, agentID *uuid.UUID, mcpID *uuid.UUID, environmentID *uuid.UUID) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	parent, err := s.resolveConfigParent(ctx, agentID, mcpID, environmentID)
+	if err != nil {
+		return err
+	}
+	return s.requireConfigRelation(ctx, identityID, parent, "can_edit_config")
 }
 
 // requireEnvironmentUse gates running a workload in an environment. A shell in
@@ -250,6 +334,33 @@ func (s *Server) removeEnvironmentRoleAuthorization(ctx context.Context, environ
 func (s *Server) requireEnvironmentRelation(ctx context.Context, identityID uuid.UUID, environmentID uuid.UUID, relation string) error {
 	return s.requireAllowed(ctx, identityID, relation, environmentPrefix+environmentID.String(),
 		status.Errorf(codes.PermissionDenied, "identity lacks %s on environment", relation))
+}
+
+func (s *Server) requireAgentRelation(ctx context.Context, identityID uuid.UUID, agentID uuid.UUID, relation string) error {
+	return s.requireAllowed(ctx, identityID, relation, agentPrefix+agentID.String(),
+		status.Errorf(codes.PermissionDenied, "identity lacks %s on agent", relation))
+}
+
+// requireAgentManageRoles gates reading and changing who holds a role on an
+// agent. Reading the role list is as sensitive as writing it -- it names the
+// identities that can reach the agent -- so the spec gives both the same
+// relation. Neither has an internal caller.
+func (s *Server) requireAgentManageRoles(ctx context.Context, agentID uuid.UUID) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.requireAgentRelation(ctx, identityID, agentID, "can_manage_roles")
+}
+
+// requireAgentDelete gates removing an agent, which the spec puts behind the
+// same relation as changing its availability.
+func (s *Server) requireAgentDelete(ctx context.Context, agentID uuid.UUID) error {
+	identityID, err := identityUUIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.requireAgentRelation(ctx, identityID, agentID, "can_delete")
 }
 
 func (s *Server) requireOrganizationRelation(ctx context.Context, identityID uuid.UUID, organizationID uuid.UUID, relation string) error {
@@ -417,19 +528,23 @@ func (s *Server) removeAgentInstanceAuthorization(ctx context.Context, instance 
 	})
 }
 
-func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID) error {
+func (s *Server) addSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID, environmentID uuid.UUID) error {
 	return s.writeAuthorization(ctx, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
 		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
+		sandboxHolderIdentityTuple(sandboxID),
+		sandboxEnvironmentTuple(sandboxID, environmentID),
 	}, nil)
 }
 
-func (s *Server) removeSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID) error {
+func (s *Server) removeSandboxAuthorization(ctx context.Context, sandboxID uuid.UUID, organizationID uuid.UUID, ownerID uuid.UUID, environmentID uuid.UUID) error {
 	return s.writeAuthorization(ctx, nil, []*authorizationv1.TupleKey{
 		sandboxOrganizationTuple(sandboxID, organizationID),
 		sandboxOwnerTuple(sandboxID, ownerID),
 		sandboxIdentityOrganizationMembershipTuple(sandboxID, organizationID),
+		sandboxHolderIdentityTuple(sandboxID),
+		sandboxEnvironmentTuple(sandboxID, environmentID),
 	})
 }
 
@@ -556,4 +671,35 @@ func sandboxOwnerTuple(sandboxID uuid.UUID, ownerID uuid.UUID) *authorizationv1.
 		Relation: "owner",
 		Object:   sandboxPrefix + sandboxID.String(),
 	}
+}
+
+// sandboxHolderIdentityTuple names the identity the sandbox workload
+// authenticates as, which is how it reads the environment it was started from.
+// Distinct from the owner: the workload holds this for its whole life, and the
+// person who started it is not who is asking.
+func sandboxHolderIdentityTuple(sandboxID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     identityPrefix + sandboxID.String(),
+		Relation: "holder",
+		Object:   sandboxPrefix + sandboxID.String(),
+	}
+}
+
+// sandboxEnvironmentTuple reaches the environment's config from the sandboxes
+// started in it, so a holder reads the init scripts it must run. The mirror of
+// agentEnvironmentTuple, for the workload that carries no agent.
+func sandboxEnvironmentTuple(sandboxID uuid.UUID, environmentID uuid.UUID) *authorizationv1.TupleKey {
+	return &authorizationv1.TupleKey{
+		User:     sandboxPrefix + sandboxID.String(),
+		Relation: "sandbox",
+		Object:   environmentPrefix + environmentID.String(),
+	}
+}
+
+func identityTypeFromContext(ctx context.Context) string {
+	identityType, ok := metadataValueFromIncomingContext(ctx, "x-identity-type")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(identityType)
 }

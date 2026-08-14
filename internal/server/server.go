@@ -179,6 +179,9 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
 	}
+	if err := s.requireOrganizationRelation(ctx, creatorID, organizationID, "owner"); err != nil {
+		return nil, err
+	}
 	idleTimeout := defaultIdleTimeout
 	if req.IdleTimeout != nil {
 		idleTimeout = req.GetIdleTimeout()
@@ -372,12 +375,21 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	var previousAgent store.Agent
 	var nicknameValue string
 	var nicknameUpdateNeeded bool
-	// An environment is checked against the agent's organization, which only the
-	// stored agent names.
-	if nicknameProvided || availabilityProvided || environmentProvided || modelProvided {
-		previousAgent, err = s.store.GetAgent(ctx, id)
-		if err != nil {
-			return nil, toStatusError(err)
+	// Unconditional: an environment is checked against the agent's organization,
+	// which only the stored agent names, and NotFound has to precede
+	// PermissionDenied for a caller naming an agent that does not exist.
+	previousAgent, err = s.store.GetAgent(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, &id, nil, nil); err != nil {
+		return nil, err
+	}
+	// Availability decides who may reach the agent at all, which the spec puts
+	// with deletion rather than with the rest of the configuration.
+	if availabilityProvided {
+		if err := s.requireAgentDelete(ctx, id); err != nil {
+			return nil, err
 		}
 	}
 	if nicknameProvided {
@@ -528,6 +540,9 @@ func (s *Server) DeleteAgent(ctx context.Context, req *agentsv1.DeleteAgentReque
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireAgentDelete(ctx, id); err != nil {
+		return nil, err
+	}
 	hasInstances, err := s.store.HasNonTerminatedAgentInstances(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
@@ -598,6 +613,11 @@ func (s *Server) SetAgentRole(ctx context.Context, req *agentsv1.SetAgentRoleReq
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireAgentManageRoles(ctx, agentID); err != nil {
+		return nil, err
+	}
+	// The grantee must also be a member: the caller's own permission says
+	// nothing about whether the identity being granted belongs here.
 	if err := s.requireOrganizationMember(ctx, identityID, agent.OrganizationID); err != nil {
 		return nil, status.Errorf(status.Code(err), "organization membership check failed: %v", err)
 	}
@@ -642,6 +662,13 @@ func (s *Server) RemoveAgentRole(ctx context.Context, req *agentsv1.RemoveAgentR
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "identity_id: %v", err)
 	}
+	// Before the mutation, which the handler used to reach first.
+	if _, err := s.store.GetAgent(ctx, agentID); err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireAgentManageRoles(ctx, agentID); err != nil {
+		return nil, err
+	}
 	assignment, err := s.store.DeleteAgentRole(ctx, agentID, identityID)
 	if err != nil {
 		return nil, toStatusError(err)
@@ -659,6 +686,9 @@ func (s *Server) ListAgentRoles(ctx context.Context, req *agentsv1.ListAgentRole
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	if err := s.requireAgentManageRoles(ctx, agentID); err != nil {
+		return nil, err
 	}
 	assignments, err := s.store.ListAgentRoles(ctx, agentID)
 	if err != nil {
@@ -727,7 +757,7 @@ func (s *Server) volumeTarget(ctx context.Context, environmentIDRaw, mcpIDRaw st
 		if err != nil {
 			return input, uuid.UUID{}, toStatusError(err)
 		}
-		if err := s.requireEnvironmentWrite(ctx, environment); err != nil {
+		if err := s.requireConfigWrite(ctx, nil, nil, &environmentID); err != nil {
 			return input, uuid.UUID{}, err
 		}
 		input.EnvironmentID = &environmentID
@@ -740,6 +770,9 @@ func (s *Server) volumeTarget(ctx context.Context, environmentIDRaw, mcpIDRaw st
 		mcp, err := s.store.GetMcp(ctx, mcpID)
 		if err != nil {
 			return input, uuid.UUID{}, toStatusError(err)
+		}
+		if err := s.requireConfigWrite(ctx, mcp.AgentID, nil, mcp.EnvironmentID); err != nil {
+			return input, uuid.UUID{}, err
 		}
 		input.McpID = &mcpID
 		return input, mcp.OrganizationID, nil
@@ -788,6 +821,9 @@ func (s *Server) GetVolume(ctx context.Context, req *agentsv1.GetVolumeRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigRead(ctx, nil, volume.McpID, volume.EnvironmentID); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetVolumeResponse{Volume: toProtoVolume(volume)}, nil
 }
 
@@ -804,7 +840,7 @@ func (s *Server) UpdateVolume(ctx context.Context, req *agentsv1.UpdateVolumeReq
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	if err := s.requireVolumeWrite(ctx, existing); err != nil {
+	if err := s.requireConfigWrite(ctx, nil, existing.McpID, existing.EnvironmentID); err != nil {
 		return nil, err
 	}
 
@@ -857,16 +893,19 @@ func (s *Server) DeleteVolume(ctx context.Context, req *agentsv1.DeleteVolumeReq
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "id: %v", err)
 	}
-	agentIDs, err := s.store.ListAgentIDsForVolume(ctx, id)
+	// Read before the delete: the target names who to notify, and it is gone
+	// with the row.
+	volume, err := s.store.GetVolume(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, nil, volume.McpID, volume.EnvironmentID); err != nil {
+		return nil, err
 	}
 	if err := s.store.DeleteVolume(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	for _, agentID := range agentIDs {
-		s.publishAgentUpdatedByID(ctx, agentID)
-	}
+	s.publishVolumeTargetUpdated(ctx, volume)
 	return &agentsv1.DeleteVolumeResponse{}, nil
 }
 
@@ -896,6 +935,9 @@ func (s *Server) ListVolumes(ctx context.Context, req *agentsv1.ListVolumesReque
 		mcp, err := s.store.GetMcp(ctx, mcpID)
 		if err != nil {
 			return nil, toStatusError(err)
+		}
+		if err := s.requireConfigRead(ctx, mcp.AgentID, nil, mcp.EnvironmentID); err != nil {
+			return nil, err
 		}
 		filter.McpID = &mcpID
 		organizationID = mcp.OrganizationID
@@ -938,7 +980,7 @@ func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) 
 		if err != nil {
 			return nil, toStatusError(err)
 		}
-		if err := s.requireEnvironmentWrite(ctx, environment); err != nil {
+		if err := s.requireConfigWrite(ctx, nil, nil, &environmentID); err != nil {
 			return nil, err
 		}
 		input.EnvironmentID = &environmentID
@@ -950,6 +992,9 @@ func (s *Server) CreateMcp(ctx context.Context, req *agentsv1.CreateMcpRequest) 
 		}
 		organizationID, err = s.organizationOfAgent(ctx, agentID)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.requireConfigWrite(ctx, &agentID, nil, nil); err != nil {
 			return nil, err
 		}
 		input.AgentID = &agentID
@@ -991,6 +1036,9 @@ func (s *Server) GetMcp(ctx context.Context, req *agentsv1.GetMcpRequest) (*agen
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigRead(ctx, mcp.AgentID, nil, mcp.EnvironmentID); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetMcpResponse{Mcp: toProtoMcp(mcp)}, nil
 }
 
@@ -1002,6 +1050,14 @@ func (s *Server) UpdateMcp(ctx context.Context, req *agentsv1.UpdateMcpRequest) 
 	if req.Image == nil && req.Command == nil && req.Resources == nil && req.Description == nil &&
 		req.ImageId == nil && req.ImageTag == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+
+	existing, err := s.store.GetMcp(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, existing.AgentID, nil, existing.EnvironmentID); err != nil {
+		return nil, err
 	}
 
 	update := store.McpUpdate{}
@@ -1042,6 +1098,9 @@ func (s *Server) DeleteMcp(ctx context.Context, req *agentsv1.DeleteMcpRequest) 
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigWrite(ctx, mcp.AgentID, nil, mcp.EnvironmentID); err != nil {
+		return nil, err
+	}
 	if err := s.store.DeleteMcp(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
@@ -1062,7 +1121,7 @@ func (s *Server) ListMcps(ctx context.Context, req *agentsv1.ListMcpsRequest) (*
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 		}
-		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
+		if err := s.requireConfigRead(ctx, nil, nil, &environmentID); err != nil {
 			return nil, err
 		}
 		filter.EnvironmentID = &environmentID
@@ -1070,6 +1129,9 @@ func (s *Server) ListMcps(ctx context.Context, req *agentsv1.ListMcpsRequest) (*
 		agentID, err := parseUUID(req.GetAgentId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+		}
+		if err := s.requireConfigRead(ctx, &agentID, nil, nil); err != nil {
+			return nil, err
 		}
 		filter.AgentID = &agentID
 	default:
@@ -1088,6 +1150,9 @@ func (s *Server) CreateSkill(ctx context.Context, req *agentsv1.CreateSkillReque
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	if err := s.requireConfigWrite(ctx, &agentID, nil, nil); err != nil {
+		return nil, err
 	}
 	skill, err := s.store.CreateSkill(ctx, store.SkillInput{
 		AgentID:     agentID,
@@ -1111,6 +1176,9 @@ func (s *Server) GetSkill(ctx context.Context, req *agentsv1.GetSkillRequest) (*
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigRead(ctx, &skill.AgentID, nil, nil); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetSkillResponse{Skill: toProtoSkill(skill)}, nil
 }
 
@@ -1121,6 +1189,14 @@ func (s *Server) UpdateSkill(ctx context.Context, req *agentsv1.UpdateSkillReque
 	}
 	if req.Name == nil && req.Body == nil && req.Description == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+
+	existing, err := s.store.GetSkill(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, &existing.AgentID, nil, nil); err != nil {
+		return nil, err
 	}
 
 	update := store.SkillUpdate{}
@@ -1154,6 +1230,9 @@ func (s *Server) DeleteSkill(ctx context.Context, req *agentsv1.DeleteSkillReque
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigWrite(ctx, &skill.AgentID, nil, nil); err != nil {
+		return nil, err
+	}
 	if err := s.store.DeleteSkill(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
@@ -1173,6 +1252,9 @@ func (s *Server) ListSkills(ctx context.Context, req *agentsv1.ListSkillsRequest
 	agentID, err := parseUUID(req.GetAgentId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
+	}
+	if err := s.requireConfigRead(ctx, &agentID, nil, nil); err != nil {
+		return nil, err
 	}
 	filter := store.SkillFilter{AgentID: &agentID}
 
@@ -1212,6 +1294,9 @@ func (s *Server) CreateEnv(ctx context.Context, req *agentsv1.CreateEnvRequest) 
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
 	}
+	if err := s.requireConfigWrite(ctx, input.AgentID, input.McpID, input.EnvironmentID); err != nil {
+		return nil, err
+	}
 
 	switch source := req.GetSource().(type) {
 	case *agentsv1.CreateEnvRequest_Value:
@@ -1244,6 +1329,9 @@ func (s *Server) GetEnv(ctx context.Context, req *agentsv1.GetEnvRequest) (*agen
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigRead(ctx, env.AgentID, env.McpID, env.EnvironmentID); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetEnvResponse{Env: toProtoEnv(env)}, nil
 }
 
@@ -1257,6 +1345,14 @@ func (s *Server) UpdateEnv(ctx context.Context, req *agentsv1.UpdateEnvRequest) 
 	}
 	if req.Value != nil && req.SecretId != nil {
 		return nil, status.Error(codes.InvalidArgument, "value and secret_id cannot both be set")
+	}
+
+	existing, err := s.store.GetEnv(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, existing.AgentID, existing.McpID, existing.EnvironmentID); err != nil {
+		return nil, err
 	}
 
 	update := store.EnvUpdate{}
@@ -1296,6 +1392,9 @@ func (s *Server) DeleteEnv(ctx context.Context, req *agentsv1.DeleteEnvRequest) 
 	env, err := s.store.GetEnv(ctx, id)
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, env.AgentID, env.McpID, env.EnvironmentID); err != nil {
+		return nil, err
 	}
 	if err := s.store.DeleteEnv(ctx, id); err != nil {
 		return nil, toStatusError(err)
@@ -1338,12 +1437,18 @@ func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsReques
 		if err != nil {
 			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
+		if err := s.requireConfigRead(ctx, &agentID, nil, nil); err != nil {
+			return store.EnvFilter{}, err
+		}
 		filter.AgentID = &agentID
 	}
 	if req.GetMcpId() != "" {
 		mcpID, err := parseUUID(req.GetMcpId())
 		if err != nil {
 			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		if err := s.requireConfigRead(ctx, nil, &mcpID, nil); err != nil {
+			return store.EnvFilter{}, err
 		}
 		filter.McpID = &mcpID
 	}
@@ -1352,7 +1457,7 @@ func (s *Server) envListFilter(ctx context.Context, req *agentsv1.ListEnvsReques
 		if err != nil {
 			return store.EnvFilter{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 		}
-		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
+		if err := s.requireConfigRead(ctx, nil, nil, &environmentID); err != nil {
 			return store.EnvFilter{}, err
 		}
 		filter.EnvironmentID = &environmentID
@@ -1404,13 +1509,15 @@ func (s *Server) CreateInitScript(ctx context.Context, req *agentsv1.CreateInitS
 		if err != nil {
 			return nil, toStatusError(err)
 		}
-		if err := s.requireEnvironmentWrite(ctx, environment); err != nil {
-			return nil, err
-		}
 		organizationID = environment.OrganizationID
 		input.EnvironmentID = &id
 	default:
 		return nil, status.Error(codes.InvalidArgument, "target must be specified")
+	}
+	// An init script is a shell script the workload runs, so writing one is
+	// authorized as any other configuration write on the parent.
+	if err := s.requireConfigWrite(ctx, input.AgentID, input.McpID, input.EnvironmentID); err != nil {
+		return nil, err
 	}
 
 	script, err := s.store.CreateInitScript(ctx, organizationID, input)
@@ -1430,6 +1537,9 @@ func (s *Server) GetInitScript(ctx context.Context, req *agentsv1.GetInitScriptR
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigRead(ctx, script.AgentID, script.McpID, script.EnvironmentID); err != nil {
+		return nil, err
+	}
 	return &agentsv1.GetInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
@@ -1440,6 +1550,14 @@ func (s *Server) UpdateInitScript(ctx context.Context, req *agentsv1.UpdateInitS
 	}
 	if req.Script == nil && req.Description == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
+	}
+
+	existing, err := s.store.GetInitScript(ctx, id)
+	if err != nil {
+		return nil, toStatusError(err)
+	}
+	if err := s.requireConfigWrite(ctx, existing.AgentID, existing.McpID, existing.EnvironmentID); err != nil {
+		return nil, err
 	}
 
 	update := store.InitScriptUpdate{}
@@ -1456,7 +1574,7 @@ func (s *Server) UpdateInitScript(ctx context.Context, req *agentsv1.UpdateInitS
 	if err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID)
+	s.publishAgentUpdatedForConfigTarget(ctx, script.AgentID, script.McpID, script.EnvironmentID)
 	return &agentsv1.UpdateInitScriptResponse{InitScript: toProtoInitScript(script)}, nil
 }
 
@@ -1469,10 +1587,13 @@ func (s *Server) DeleteInitScript(ctx context.Context, req *agentsv1.DeleteInitS
 	if err != nil {
 		return nil, toStatusError(err)
 	}
+	if err := s.requireConfigWrite(ctx, script.AgentID, script.McpID, script.EnvironmentID); err != nil {
+		return nil, err
+	}
 	if err := s.store.DeleteInitScript(ctx, id); err != nil {
 		return nil, toStatusError(err)
 	}
-	s.publishAgentUpdatedForTarget(ctx, script.AgentID, script.McpID)
+	s.publishAgentUpdatedForConfigTarget(ctx, script.AgentID, script.McpID, script.EnvironmentID)
 	return &agentsv1.DeleteInitScriptResponse{}, nil
 }
 
@@ -1489,7 +1610,7 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 		}
-		if err := s.requireEnvironmentConfigRead(ctx, environmentID); err != nil {
+		if err := s.requireConfigRead(ctx, nil, nil, &environmentID); err != nil {
 			return nil, err
 		}
 		filter.EnvironmentID = &environmentID
@@ -1501,6 +1622,9 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 		}
+		if err := s.requireConfigRead(ctx, &agentID, nil, nil); err != nil {
+			return nil, err
+		}
 		filter.AgentID = &agentID
 	}
 	if req.GetMcpId() != "" {
@@ -1508,6 +1632,9 @@ func (s *Server) ListInitScripts(ctx context.Context, req *agentsv1.ListInitScri
 		mcpID, err := parseUUID(req.GetMcpId())
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "mcp_id: %v", err)
+		}
+		if err := s.requireConfigRead(ctx, nil, &mcpID, nil); err != nil {
+			return nil, err
 		}
 		filter.McpID = &mcpID
 	}

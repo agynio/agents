@@ -115,6 +115,10 @@ func (s *Server) publishSandboxUpdated(ctx context.Context, sandbox store.Sandbo
 			// viewer who is not the owner -- the detail view of a sandbox an
 			// organization owner did not create.
 			fmt.Sprintf("sandbox:%s", sandbox.Meta.ID),
+			// The three above are views someone opened. This one is the
+			// platform's, and it is the only one that reaches a reconciler
+			// which cannot know an organization exists until it is told.
+			platformSandboxesRoom,
 		},
 		Payload: payload,
 		Source:  "agents",
@@ -139,17 +143,6 @@ func (s *Server) resolveAgentID(ctx context.Context, agentID *uuid.UUID, mcpID *
 		return *mcp.AgentID, nil
 	}
 	return uuid.UUID{}, fmt.Errorf("missing target identifier")
-}
-
-func (s *Server) publishAgentUpdatedForVolume(ctx context.Context, volumeID uuid.UUID) {
-	agentIDs, err := s.store.ListAgentIDsForVolume(ctx, volumeID)
-	if err != nil {
-		log.Printf("agents: list volume agents: %v", err)
-		return
-	}
-	for _, agentID := range agentIDs {
-		s.publishAgentUpdatedByID(ctx, agentID)
-	}
 }
 
 // publishAgentUpdatedForConfigTarget notifies the agent whose configuration the
@@ -180,6 +173,12 @@ func (s *Server) publishAgentUpdatedForTarget(ctx context.Context, agentID *uuid
 const (
 	instanceUpdatedEvent  = "instance.updated"
 	inboxItemCreatedEvent = "message.created"
+	// Cluster-wide rooms, held by the platform alone. Every other room here is
+	// keyed by the entity someone is looking at; these are keyed by nothing,
+	// because the Orchestrator reconciles all of them and a room set it has to
+	// derive is one that misses whatever it has not seen yet.
+	platformAgentInstancesRoom = "agent_instances"
+	platformSandboxesRoom      = "sandboxes"
 )
 
 func (s *Server) publishInstanceUpdated(ctx context.Context, instance store.AgentInstance) {
@@ -194,8 +193,14 @@ func (s *Server) publishInstanceUpdated(ctx context.Context, instance store.Agen
 		return
 	}
 	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
-		Event:   instanceUpdatedEvent,
-		Rooms:   []string{fmt.Sprintf("agent_instance:%s", instance.Meta.ID)},
+		Event: instanceUpdatedEvent,
+		Rooms: []string{
+			fmt.Sprintf("agent_instance:%s", instance.Meta.ID),
+			// The cluster-wide room the Orchestrator holds. It reconciles every
+			// instance there is, so it cannot be made to subscribe per instance
+			// without racing the creation of the next one.
+			platformAgentInstancesRoom,
+		},
 		Payload: payload,
 		Source:  "agents",
 	})
@@ -215,8 +220,16 @@ func (s *Server) publishInboxItemCreated(ctx context.Context, item store.InboxIt
 		return
 	}
 	_, err = s.notifications.Publish(ctx, &notificationsv1.PublishRequest{
-		Event:   inboxItemCreatedEvent,
-		Rooms:   []string{fmt.Sprintf("instance_inbox:%s", item.AgentInstanceID)},
+		Event: inboxItemCreatedEvent,
+		Rooms: []string{
+			fmt.Sprintf("instance_inbox:%s", item.AgentInstanceID),
+			// The Orchestrator has to start a workload for an instance that has
+			// work waiting, and the inbox room is the instance's own -- it reads
+			// what arrived, not merely that something did. The platform room
+			// carries the same wake without the contents: this payload is ids
+			// and a source kind, nothing of the message itself.
+			platformAgentInstancesRoom,
+		},
 		Payload: payload,
 		Source:  "agents",
 	})
