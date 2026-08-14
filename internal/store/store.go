@@ -17,7 +17,7 @@ const (
 	agentColumns                     = `id, organization_id, name, nickname, role, model, model_name, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, environment_id, mcp_id, name, mount_path, persistent, size, storage_class, ttl, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, environment_id, created_at, updated_at`
-	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability, llm_mode, llm_allowed_models, created_at, updated_at`
+	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability, llm_mode, llm_allowed_models, persistent_shells, created_at, updated_at`
 	sandboxColumns                   = `id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, last_session_at, environment_name, workload_id, created_at, updated_at`
 	mcpColumns                       = `id, organization_id, agent_id, environment_id, shared_volumes, name, image, command, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, description, image_id, image_tag, created_at, updated_at`
 	skillColumns                     = `id, agent_id, name, body, description, created_at, updated_at`
@@ -165,6 +165,7 @@ func scanEnvironment(row pgx.Row) (Environment, error) {
 		&environment.Availability,
 		&environment.LLMMode,
 		&environment.LLMAllowedModels,
+		&environment.PersistentShells,
 		&environment.Meta.CreatedAt,
 		&environment.Meta.UpdatedAt,
 	); err != nil {

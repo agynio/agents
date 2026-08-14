@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"regexp"
 	"strings"
@@ -101,6 +102,8 @@ func (s *Server) CreateEnvironment(ctx context.Context, req *agentsv1.CreateEnvi
 		// Never nil: the column is NOT NULL, and an absent repeated field
 		// arrives as a nil slice that pgx encodes as NULL rather than '{}'.
 		LLMAllowedModels: append([]string{}, req.GetLlmAllowedModels()...),
+		// Nil leaves the column default, which is on.
+		PersistentShells: req.PersistentShells,
 	}
 	if workspace != nil {
 		input.WorkspaceImageID = &workspace.ImageID
@@ -161,7 +164,7 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 	if req.Name == nil && req.Image == nil && req.RunnerId == nil && req.Flavor == nil &&
 		req.WorkspaceImageId == nil && req.WorkspaceImageTag == nil &&
 		req.AgentRuntimeImageId == nil && req.AgentRuntimeImageTag == nil && req.Availability == nil &&
-		req.LlmMode == nil && req.LlmAllowedModels == nil {
+		req.LlmMode == nil && req.LlmAllowedModels == nil && req.PersistentShells == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	existing, err := s.store.GetEnvironment(ctx, id)
@@ -220,6 +223,10 @@ func (s *Server) UpdateEnvironment(ctx context.Context, req *agentsv1.UpdateEnvi
 			}
 		}
 		update.LLMMode = &llmMode
+	}
+	if req.PersistentShells != nil {
+		persistent := req.GetPersistentShells()
+		update.PersistentShells = &persistent
 	}
 	if req.LlmAllowedModels != nil {
 		// Same NOT NULL column as on create: the empty case has to reach pgx as
@@ -493,6 +500,13 @@ func (s *Server) DeleteSandbox(ctx context.Context, req *agentsv1.DeleteSandboxR
 	sandbox, err = s.store.UpdateSandbox(ctx, sandbox.Meta.ID, store.SandboxUpdate{Status: &terminated})
 	if err != nil {
 		return nil, toStatusError(err)
+	}
+	// Layouts go even though the record stays. `terminated` retains a sandbox
+	// for usage history, and a set of tabs is not usage history -- nobody will
+	// ever reopen it. A sandbox that merely stopped keeps them, which is the
+	// whole reason they are stored out here.
+	if err := s.store.DeleteSandboxLayouts(ctx, sandbox.Meta.ID); err != nil {
+		log.Printf("delete sandbox layouts %s: %v", sandbox.Meta.ID, err)
 	}
 	s.publishSandboxUpdated(ctx, sandbox)
 	return &agentsv1.DeleteSandboxResponse{Sandbox: toProtoSandbox(sandbox)}, nil

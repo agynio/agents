@@ -275,6 +275,11 @@ type Environment struct {
 	// model names they may ask for. An empty allowlist is no restriction.
 	LLMMode          LLMMode
 	LLMAllowedModels []string
+	// PersistentShells decides whether shells in this environment's workloads
+	// outlive the connections that reach them. Resolved onto the workload at
+	// start, so an edit applies to the next one rather than to a sandbox
+	// someone is working in.
+	PersistentShells bool
 }
 
 type LLMMode string
@@ -458,6 +463,8 @@ type EnvironmentInput struct {
 	AgentRuntimeImageTag string
 	LLMMode              LLMMode
 	LLMAllowedModels     []string
+	// Nil takes the column default, which is on.
+	PersistentShells     *bool
 }
 
 type EnvironmentUpdate struct {
@@ -475,6 +482,7 @@ type EnvironmentUpdate struct {
 	AgentRuntimeImageTag *string
 	LLMMode              *LLMMode
 	LLMAllowedModels     *[]string
+	PersistentShells     *bool
 }
 
 type SandboxInput struct {
