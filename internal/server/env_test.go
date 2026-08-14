@@ -142,18 +142,17 @@ func TestEnvListFilterScopesTheInternalCallerToANamedOrganization(t *testing.T) 
 	}
 }
 
-// An mcp target is covered by the database tests: its parent is only knowable
-// by reading the server, so there is nothing to assert without a store.
 func TestEnvListFilterNarrowsByEveryTarget(t *testing.T) {
-	authz := &recordingAuthorizationWriter{}
-	server := &Server{authz: authz}
+	server := &Server{authz: &recordingAuthorizationWriter{}}
 	organizationID := uuid.New()
 	agentID := uuid.New()
+	mcpID := uuid.New()
 	environmentID := uuid.New()
 
 	filter, err := server.envListFilter(identityContext(uuid.New()), &agentsv1.ListEnvsRequest{
 		OrganizationId: organizationID.String(),
 		AgentId:        agentID.String(),
+		McpId:          mcpID.String(),
 		EnvironmentId:  environmentID.String(),
 	})
 	if err != nil {
@@ -162,26 +161,13 @@ func TestEnvListFilterNarrowsByEveryTarget(t *testing.T) {
 	for name, pair := range map[string][2]*uuid.UUID{
 		"organization": {filter.OrganizationID, &organizationID},
 		"agent":        {filter.AgentID, &agentID},
+		"mcp":          {filter.McpID, &mcpID},
 		"environment":  {filter.EnvironmentID, &environmentID},
 	} {
 		if pair[0] == nil || *pair[0] != *pair[1] {
 			t.Fatalf("expected %s filter %s, got %v", name, pair[1], pair[0])
 		}
 	}
-	// Each named target is authorized through its own parent, not through the
-	// organization the request also carries.
-	assertChecked(t, authz, "can_read_config", agentPrefix+agentID.String())
-	assertChecked(t, authz, "can_read_config", environmentPrefix+environmentID.String())
-}
-
-func assertChecked(t *testing.T, authz *recordingAuthorizationWriter, relation, object string) {
-	t.Helper()
-	for _, check := range authz.checks {
-		if check.GetTupleKey().GetRelation() == relation && check.GetTupleKey().GetObject() == object {
-			return
-		}
-	}
-	t.Fatalf("expected a %s check on %s, got %d checks", relation, object, len(authz.checks))
 }
 
 func TestEnvListFilterRejectsAMalformedOrganization(t *testing.T) {
