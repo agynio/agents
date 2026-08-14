@@ -1127,11 +1127,7 @@ func (s *Store) CreateInitScript(ctx context.Context, organizationID uuid.UUID, 
 			}
 			return InitScript{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID)
-		if err != nil {
-			return InitScript{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, script.AgentID, script.McpID, script.EnvironmentID); err != nil {
 			return InitScript{}, err
 		}
 		return script, nil
@@ -1175,11 +1171,7 @@ func (s *Store) UpdateInitScript(ctx context.Context, id uuid.UUID, update InitS
 			}
 			return InitScript{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID)
-		if err != nil {
-			return InitScript{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, script.AgentID, script.McpID, script.EnvironmentID); err != nil {
 			return InitScript{}, err
 		}
 		return script, nil
@@ -1199,11 +1191,7 @@ func (s *Store) DeleteInitScript(ctx context.Context, id uuid.UUID) error {
 			}
 			return struct{}{}, err
 		}
-		agentID, err := resolveAgentID(ctx, tx, script.AgentID, script.McpID)
-		if err != nil {
-			return struct{}{}, err
-		}
-		if err := touchAgentUpdatedAt(ctx, tx, agentID); err != nil {
+		if err := touchTargetAgent(ctx, tx, script.AgentID, script.McpID, script.EnvironmentID); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
@@ -1219,6 +1207,9 @@ func (s *Store) ListInitScripts(ctx context.Context, filter InitScriptFilter, pa
 	}
 	if filter.McpID != nil {
 		clauses, args = appendClause(clauses, args, "mcp_id = $%d", *filter.McpID)
+	}
+	if filter.EnvironmentID != nil {
+		clauses, args = appendClause(clauses, args, "environment_id = $%d", *filter.EnvironmentID)
 	}
 
 	scripts, nextCursor, err := listEntities(ctx, s.pool,

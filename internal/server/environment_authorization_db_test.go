@@ -50,6 +50,9 @@ func seedEnvironment(ctx context.Context, t *testing.T, backing *store.Store, or
 		RunnerID:     &runnerID,
 		Flavor:       "small",
 		Availability: store.EnvironmentAvailabilityPrivate,
+		LLMMode:      store.LLMModePlatform,
+		// NOT NULL, and a nil slice encodes as NULL rather than '{}'.
+		LLMAllowedModels: []string{},
 	})
 	if err != nil {
 		t.Fatalf("seed environment: %v", err)
