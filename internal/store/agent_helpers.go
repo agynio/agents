@@ -131,12 +131,25 @@ func agentIDForMcp(ctx context.Context, tx pgx.Tx, mcpID uuid.UUID) (uuid.UUID, 
 	return agentID, nil
 }
 
+// agentIDsForVolume names the agents whose configuration a volume is part of.
+//
+// A volume stopped being a free-standing row reached through an attachment when
+// it became a sub-resource of what mounts it, and volume_attachments was
+// dropped with it -- so this query returned "relation does not exist" on every
+// delete and every notification since. A volume now hangs off an MCP, whose
+// agent it belongs to, or off an environment, which every agent running there
+// takes its configuration from.
 func agentIDsForVolume(ctx context.Context, queryer agentIDQueryer, volumeID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := queryer.Query(ctx,
-		`SELECT DISTINCT COALESCE(va.agent_id, mcps.agent_id)
-FROM volume_attachments va
-LEFT JOIN mcps ON va.mcp_id = mcps.id
-WHERE va.volume_id = $1`,
+		`SELECT mcps.agent_id
+FROM volumes
+JOIN mcps ON mcps.id = volumes.mcp_id
+WHERE volumes.id = $1 AND mcps.agent_id IS NOT NULL
+UNION
+SELECT agents.id
+FROM volumes
+JOIN agents ON agents.environment_id = volumes.environment_id
+WHERE volumes.id = $1`,
 		volumeID,
 	)
 	if err != nil {
