@@ -109,8 +109,17 @@ func run() error {
 	agentsv1.RegisterAgentsServiceServer(grpcServer, agentsService)
 
 	// Environments predating the environment authorization type carry no tuples,
-	// so every check against them refuses. Idempotent, and runs before serving.
-	agentsService.BackfillEnvironmentAuthorization(ctx)
+	// so every check against them refuses.
+	//
+	// In the background, because it is one authorization write per environment
+	// and nothing waits on it: it is idempotent, it runs again on the next
+	// start, and a request arriving mid-backfill is answered by the tuples that
+	// already exist. Ahead of Serve it was O(environments) between process
+	// start and the port opening, which the liveness probe -- tcp on the gRPC
+	// port, three failures ten seconds apart -- eventually outlasts. An
+	// organization with a few hundred environments crashlooped the service on a
+	// backfill that had nothing left to do.
+	go agentsService.BackfillEnvironmentAuthorization(ctx)
 
 	// Instances whose class sets an idle limit are paused once they pass it.
 	// Started before Serve so a service that never receives a request still
