@@ -131,41 +131,59 @@ func (s *Server) removeAgentNickname(ctx context.Context, agentID uuid.UUID, org
 // environment in another organization. The composite foreign key on agents
 // refuses that too, but the violation would reach the caller as an opaque
 // internal error rather than naming the field that was wrong.
-func (s *Server) environmentInOrganization(ctx context.Context, value string, organizationID uuid.UUID) (uuid.UUID, error) {
+func (s *Server) environmentInOrganization(ctx context.Context, value string, organizationID uuid.UUID) (uuid.UUID, store.Environment, error) {
 	environmentID, err := parseUUID(value)
 	if err != nil {
-		return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+		return uuid.UUID{}, store.Environment{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 	}
 	environment, err := s.store.GetEnvironment(ctx, environmentID)
 	if err != nil {
 		var notFound *store.NotFoundError
 		if errors.As(err, &notFound) {
-			return uuid.UUID{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
+			return uuid.UUID{}, store.Environment{}, status.Errorf(codes.InvalidArgument, "environment_id: %v", err)
 		}
-		return uuid.UUID{}, toStatusError(err)
+		return uuid.UUID{}, store.Environment{}, toStatusError(err)
 	}
 	if environment.OrganizationID != organizationID {
-		return uuid.UUID{}, status.Error(codes.InvalidArgument, "environment_id: environment belongs to another organization")
+		return uuid.UUID{}, store.Environment{}, status.Error(codes.InvalidArgument, "environment_id: environment belongs to another organization")
 	}
 	// Pointing an agent at an environment runs its workloads there, reaching the
 	// same secrets, egress credentials and volume contents a sandbox would, so
 	// it takes the same grant.
 	if err := s.requireEnvironmentUse(ctx, environmentID); err != nil {
-		return uuid.UUID{}, err
+		return uuid.UUID{}, store.Environment{}, err
 	}
-	return environmentID, nil
+	return environmentID, environment, nil
+}
+
+// agentEnvironment resolves the environment an agent is being pointed at, and
+// refuses one it could not run in.
+//
+// Naming none at all, or naming one with no agent runtime image, both leave the
+// agent without a CLI: init_image no longer stands in for one. The Orchestrator
+// refuses to assemble a workload without a runtime, so such an agent is retried
+// every reconcile cycle and never starts -- a failure only the Orchestrator's
+// own log ever sees.
+func (s *Server) agentEnvironment(ctx context.Context, value string, organizationID uuid.UUID) (uuid.UUID, store.Environment, error) {
+	if value == "" {
+		return uuid.UUID{}, store.Environment{}, status.Error(codes.InvalidArgument,
+			"environment_id is required: an agent takes its agent CLI from an environment's agent runtime image")
+	}
+	environmentID, environment, err := s.environmentInOrganization(ctx, value, organizationID)
+	if err != nil {
+		return uuid.UUID{}, store.Environment{}, err
+	}
+	if environment.AgentRuntimeImageID == nil {
+		return uuid.UUID{}, store.Environment{}, status.Errorf(codes.FailedPrecondition,
+			"environment %s names no agent runtime image, so it has no agent CLI to run", environment.Name)
+	}
+	return environmentID, environment, nil
 }
 
 func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentRequest) (*agentsv1.CreateAgentResponse, error) {
 	organizationID, err := parseUUID(req.GetOrganizationId())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "organization_id: %v", err)
-	}
-	// init_image is required only for the deprecated inline path. An agent
-	// running an environment takes its agent CLI from that environment's agent
-	// runtime image instead.
-	if req.GetInitImage() == "" && req.GetEnvironmentId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "init_image is required when no environment is named")
 	}
 	availability, err := agentAvailabilityFromProto(req.GetAvailability())
 	if err != nil {
@@ -197,32 +215,12 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		}
 		instanceIdleTTL = &value
 	}
-	// Optional: an agent may name no environment and run from the deprecated
-	// inline image and resources instead.
-	var environmentID *uuid.UUID
-	// An agent without an environment predates modes, so it is a platform one.
-	llmMode := store.LLMModePlatform
-	if req.GetEnvironmentId() != "" {
-		resolved, err := s.environmentInOrganization(ctx, req.GetEnvironmentId(), organizationID)
-		if err != nil {
-			return nil, err
-		}
-		// An agent needs an agent CLI to run. An environment that names a
-		// catalog workspace image but no agent runtime is workspace-only:
-		// usable by a sandbox, not by an agent. Environments still on the
-		// free-form image carry their CLI in the agent's init_image, so they
-		// are exempt until that field goes.
-		environment, err := s.store.GetEnvironment(ctx, resolved)
-		if err != nil {
-			return nil, toStatusError(err)
-		}
-		if environment.WorkspaceImageID != nil && environment.AgentRuntimeImageID == nil {
-			return nil, status.Errorf(codes.FailedPrecondition,
-				"environment %s names no agent runtime image, so it has no agent CLI to run", environment.Name)
-		}
-		environmentID = &resolved
-		llmMode = environment.LLMMode
+	resolved, environment, err := s.agentEnvironment(ctx, req.GetEnvironmentId(), organizationID)
+	if err != nil {
+		return nil, err
 	}
+	environmentID := &resolved
+	llmMode := environment.LLMMode
 	// The mode decides which of the two model references is legal, so a
 	// mismatch fails when someone configures it rather than when it runs.
 	modelID, modelName, err := resolveAgentModel(llmMode, req.GetModel(), req.GetModelName())
@@ -437,17 +435,14 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 		update.Resources = &resources
 	}
 	if environmentProvided {
-		// An empty environment_id clears the reference rather than naming an
-		// environment, leaving the agent as one created before they existed.
-		if req.GetEnvironmentId() == "" {
-			update.ClearEnvironmentID = true
-		} else {
-			environmentID, err := s.environmentInOrganization(ctx, req.GetEnvironmentId(), previousAgent.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-			update.EnvironmentID = &environmentID
+		// An empty value used to clear the reference. It now fails the same way
+		// creating an environment-less agent does: either leaves the agent with
+		// no agent CLI.
+		environmentID, _, err := s.agentEnvironment(ctx, req.GetEnvironmentId(), previousAgent.OrganizationID)
+		if err != nil {
+			return nil, err
 		}
+		update.EnvironmentID = &environmentID
 	}
 
 	if modelProvided || environmentProvided {
@@ -1645,9 +1640,7 @@ func toProtoEnvironmentAvailability(availability store.EnvironmentAvailability) 
 // mentioned.
 func (s *Server) resolveUpdatedAgentModel(ctx context.Context, req *agentsv1.UpdateAgentRequest, previous store.Agent, update store.AgentUpdate) (uuid.UUID, string, error) {
 	environmentID := previous.EnvironmentID
-	if update.ClearEnvironmentID {
-		environmentID = nil
-	} else if update.EnvironmentID != nil {
+	if update.EnvironmentID != nil {
 		environmentID = update.EnvironmentID
 	}
 

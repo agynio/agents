@@ -45,27 +45,47 @@ func agentEnvironmentServer(ctx context.Context, t *testing.T) *Server {
 	return New(store.New(pool), noopAuthorizationWriter{}, noopIdentityWriter{}, noopNotificationsClient{})
 }
 
+// createTestEnvironment builds one an agent can run in: it names an agent
+// runtime image, which is where the agent CLI comes from.
 func createTestEnvironment(ctx context.Context, t *testing.T, server *Server, organizationID uuid.UUID, name string) string {
 	t.Helper()
-	response, err := server.CreateEnvironment(ctx, &agentsv1.CreateEnvironmentRequest{
+	return createEnvironmentWithRuntime(ctx, t, server, organizationID, name, true)
+}
+
+// createWorkspaceOnlyEnvironment builds one only a sandbox can use: a sandbox
+// brings its own tooling, so it needs no agent runtime image.
+func createWorkspaceOnlyEnvironment(ctx context.Context, t *testing.T, server *Server, organizationID uuid.UUID, name string) string {
+	t.Helper()
+	return createEnvironmentWithRuntime(ctx, t, server, organizationID, name, false)
+}
+
+func createEnvironmentWithRuntime(ctx context.Context, t *testing.T, server *Server, organizationID uuid.UUID, name string, withRuntime bool) string {
+	t.Helper()
+	request := &agentsv1.CreateEnvironmentRequest{
 		OrganizationId: organizationID.String(),
 		RunnerId:       uuid.NewString(),
 		Name:           name,
 		Image:          "ghcr.io/agynio/environment:latest",
 		Flavor:         "small",
 		Availability:   agentsv1.EnvironmentAvailability_ENVIRONMENT_AVAILABILITY_INTERNAL,
-	})
+	}
+	if withRuntime {
+		request.AgentRuntimeImageId = uuid.NewString()
+		request.AgentRuntimeImageTag = "1.0.0"
+	}
+	response, err := server.CreateEnvironment(ctx, request)
 	if err != nil {
 		t.Fatalf("create environment: %v", err)
 	}
 	return response.GetEnvironment().GetMeta().GetId()
 }
 
-func createAgentRequest(organizationID uuid.UUID, name string) *agentsv1.CreateAgentRequest {
+func createAgentRequest(organizationID uuid.UUID, name, environmentID string) *agentsv1.CreateAgentRequest {
 	return &agentsv1.CreateAgentRequest{
 		OrganizationId: organizationID.String(),
 		Name:           name,
 		Model:          uuid.NewString(),
+		EnvironmentId:  environmentID,
 		InitImage:      testInitImage,
 		Availability:   agentsv1.AgentAvailability_AGENT_AVAILABILITY_INTERNAL,
 	}
@@ -79,9 +99,7 @@ func TestCreateAgentPersistsTheEnvironmentReference(t *testing.T) {
 	organizationID := uuid.New()
 	environmentID := createTestEnvironment(ctx, t, server, organizationID, "default")
 
-	request := createAgentRequest(organizationID, "alpha")
-	request.EnvironmentId = environmentID
-	created, err := server.CreateAgent(ctx, request)
+	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", environmentID))
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -110,27 +128,44 @@ func TestCreateAgentPersistsTheEnvironmentReference(t *testing.T) {
 	}
 }
 
-// The reference is optional: agents created before environments existed have
-// none, and one can still be created without naming an environment.
-func TestCreateAgentWithoutAnEnvironmentLeavesItEmpty(t *testing.T) {
+// An agent takes its CLI from its environment's agent runtime image, so an agent
+// with no environment has no CLI to run. The Orchestrator refuses to assemble
+// one, on every cycle, forever -- so the refusal belongs here, where the caller
+// hears it.
+func TestCreateAgentRequiresAnEnvironment(t *testing.T) {
+	ctx := identityContext(uuid.New())
+	server := agentEnvironmentServer(ctx, t)
+
+	_, err := server.CreateAgent(ctx, createAgentRequest(uuid.New(), "alpha", ""))
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+}
+
+// A workspace-only environment is one a sandbox uses. It names no agent runtime
+// image, so it leaves an agent in exactly the state above.
+func TestAgentRefusesAWorkspaceOnlyEnvironment(t *testing.T) {
 	ctx := identityContext(uuid.New())
 	server := agentEnvironmentServer(ctx, t)
 	organizationID := uuid.New()
+	runnable := createTestEnvironment(ctx, t, server, organizationID, "runnable")
+	workspaceOnly := createWorkspaceOnlyEnvironment(ctx, t, server, organizationID, "sandboxes")
 
-	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha"))
+	_, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", workspaceOnly))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected failed precondition on create, got %v", err)
+	}
+
+	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "beta", runnable))
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
-	if created.GetAgent().GetEnvironmentId() != "" {
-		t.Fatalf("expected no environment on the created agent, got %q", created.GetAgent().GetEnvironmentId())
-	}
-
-	fetched, err := server.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: created.GetAgent().GetMeta().GetId()})
-	if err != nil {
-		t.Fatalf("get agent: %v", err)
-	}
-	if fetched.GetAgent().GetEnvironmentId() != "" {
-		t.Fatalf("expected no environment on the fetched agent, got %q", fetched.GetAgent().GetEnvironmentId())
+	_, err = server.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
+		Id:            created.GetAgent().GetMeta().GetId(),
+		EnvironmentId: ptr(workspaceOnly),
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected failed precondition on update, got %v", err)
 	}
 }
 
@@ -148,9 +183,7 @@ func TestAgentRefusesAnEnvironmentFromAnotherOrganization(t *testing.T) {
 		{
 			name: "create",
 			refuse: func(ctx context.Context, t *testing.T, server *Server, organizationID uuid.UUID, environmentID string) error {
-				request := createAgentRequest(organizationID, "alpha")
-				request.EnvironmentId = environmentID
-				_, err := server.CreateAgent(ctx, request)
+				_, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", environmentID))
 				return err
 			},
 		},
@@ -158,7 +191,8 @@ func TestAgentRefusesAnEnvironmentFromAnotherOrganization(t *testing.T) {
 			name: "update",
 			refuse: func(ctx context.Context, t *testing.T, server *Server, organizationID uuid.UUID, environmentID string) error {
 				t.Helper()
-				created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha"))
+				own := createTestEnvironment(ctx, t, server, organizationID, "own")
+				created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", own))
 				if err != nil {
 					t.Fatalf("create agent: %v", err)
 				}
@@ -190,16 +224,17 @@ func TestAgentRefusesAnEnvironmentFromAnotherOrganization(t *testing.T) {
 	}
 }
 
-// An agent may move to an environment it did not name at creation, and may give
-// one up again — an agent with none is the state every agent was in before
-// environments existed.
-func TestUpdateAgentSetsAndClearsTheEnvironmentReference(t *testing.T) {
+// An agent may move to an environment it did not name at creation. It may not
+// give one up: an empty environment_id used to clear the reference, and now
+// leaves the agent in the state CreateAgent refuses to produce.
+func TestUpdateAgentMovesTheEnvironmentAndRefusesToClearIt(t *testing.T) {
 	ctx := identityContext(uuid.New())
 	server := agentEnvironmentServer(ctx, t)
 	organizationID := uuid.New()
-	environmentID := createTestEnvironment(ctx, t, server, organizationID, "default")
+	first := createTestEnvironment(ctx, t, server, organizationID, "first")
+	second := createTestEnvironment(ctx, t, server, organizationID, "second")
 
-	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha"))
+	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", first))
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -207,40 +242,36 @@ func TestUpdateAgentSetsAndClearsTheEnvironmentReference(t *testing.T) {
 
 	updated, err := server.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
 		Id:            agentID,
-		EnvironmentId: ptr(environmentID),
+		EnvironmentId: ptr(second),
 	})
 	if err != nil {
 		t.Fatalf("update agent: %v", err)
 	}
-	if updated.GetAgent().GetEnvironmentId() != environmentID {
-		t.Fatalf("expected environment %s after the update, got %q", environmentID, updated.GetAgent().GetEnvironmentId())
+	if updated.GetAgent().GetEnvironmentId() != second {
+		t.Fatalf("expected environment %s after the update, got %q", second, updated.GetAgent().GetEnvironmentId())
 	}
 
 	fetched, err := server.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID})
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
 	}
-	if fetched.GetAgent().GetEnvironmentId() != environmentID {
-		t.Fatalf("expected environment %s to be stored, got %q", environmentID, fetched.GetAgent().GetEnvironmentId())
+	if fetched.GetAgent().GetEnvironmentId() != second {
+		t.Fatalf("expected environment %s to be stored, got %q", second, fetched.GetAgent().GetEnvironmentId())
 	}
 
-	cleared, err := server.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
+	if _, err := server.UpdateAgent(ctx, &agentsv1.UpdateAgentRequest{
 		Id:            agentID,
 		EnvironmentId: ptr(""),
-	})
-	if err != nil {
-		t.Fatalf("clear environment: %v", err)
-	}
-	if cleared.GetAgent().GetEnvironmentId() != "" {
-		t.Fatalf("expected no environment after clearing, got %q", cleared.GetAgent().GetEnvironmentId())
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected clearing to be refused, got %v", err)
 	}
 
 	refetched, err := server.GetAgent(ctx, &agentsv1.GetAgentRequest{Id: agentID})
 	if err != nil {
 		t.Fatalf("get agent: %v", err)
 	}
-	if refetched.GetAgent().GetEnvironmentId() != "" {
-		t.Fatalf("expected the cleared environment to be stored, got %q", refetched.GetAgent().GetEnvironmentId())
+	if refetched.GetAgent().GetEnvironmentId() != second {
+		t.Fatalf("expected environment %s to survive the refusal, got %q", second, refetched.GetAgent().GetEnvironmentId())
 	}
 }
 
@@ -251,8 +282,7 @@ func TestAgentRefusesAnUnknownEnvironment(t *testing.T) {
 	server := agentEnvironmentServer(ctx, t)
 	organizationID := uuid.New()
 
-	request := createAgentRequest(organizationID, "alpha")
-	request.EnvironmentId = uuid.NewString()
+	request := createAgentRequest(organizationID, "alpha", uuid.NewString())
 	if _, err := server.CreateAgent(ctx, request); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("expected invalid argument, got %v", err)
 	}
@@ -262,8 +292,7 @@ func TestCreateAgentRejectsAMalformedEnvironment(t *testing.T) {
 	ctx := identityContext(uuid.New())
 	server := agentEnvironmentServer(ctx, t)
 
-	request := createAgentRequest(uuid.New(), "alpha")
-	request.EnvironmentId = "not-a-uuid"
+	request := createAgentRequest(uuid.New(), "alpha", "not-a-uuid")
 	if _, err := server.CreateAgent(ctx, request); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("expected invalid argument, got %v", err)
 	}
@@ -276,8 +305,9 @@ func TestUpdateAgentAcceptsTheEnvironmentAsTheOnlyField(t *testing.T) {
 	server := agentEnvironmentServer(ctx, t)
 	organizationID := uuid.New()
 	environmentID := createTestEnvironment(ctx, t, server, organizationID, "default")
+	other := createTestEnvironment(ctx, t, server, organizationID, "other")
 
-	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha"))
+	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", other))
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}

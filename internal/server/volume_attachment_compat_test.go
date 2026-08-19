@@ -19,9 +19,7 @@ func TestListVolumeAttachmentsServesTheEnvironmentsVolumes(t *testing.T) {
 	environmentID := createTestEnvironment(ctx, t, server, organizationID, "shared")
 	mustCreateVolume(ctx, t, server, environmentID, "data", "/data")
 
-	request := createAgentRequest(organizationID, "alpha")
-	request.EnvironmentId = environmentID
-	created, err := server.CreateAgent(ctx, request)
+	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", environmentID))
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -50,14 +48,16 @@ func TestListVolumeAttachmentsServesTheEnvironmentsVolumes(t *testing.T) {
 	}
 }
 
-// An agent in no environment has no volumes, which is an empty list rather than
-// an error: the old orchestrator treats a failure here as an unassemblable
+// An environment with no volumes attaches none, which is an empty list rather
+// than an error: the old orchestrator treats a failure here as an unassemblable
 // agent.
-func TestListVolumeAttachmentsForAnAgentWithoutAnEnvironment(t *testing.T) {
+func TestListVolumeAttachmentsForAnEnvironmentWithoutVolumes(t *testing.T) {
 	ctx := identityContext(uuid.New())
 	server := agentEnvironmentServer(ctx, t)
+	organizationID := uuid.New()
 
-	created, err := server.CreateAgent(ctx, createAgentRequest(uuid.New(), "alpha"))
+	environmentID := createTestEnvironment(ctx, t, server, organizationID, "empty")
+	created, err := server.CreateAgent(ctx, createAgentRequest(organizationID, "alpha", environmentID))
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
