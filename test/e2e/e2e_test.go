@@ -178,12 +178,29 @@ func TestAgentsServiceE2E(t *testing.T) {
 
 		skillResp, err := client.CreateSkill(ctx, &agentsv1.CreateSkillRequest{
 			AgentId:     agentID,
-			Name:        "Skill " + testID,
+			Name:        "skill-" + testID,
 			Body:        "skill body",
 			Description: "Skill description",
 		})
 		require.NoError(t, err)
 		skillID := skillResp.Skill.Meta.Id
+
+		_, err = client.CreateSkill(ctx, &agentsv1.CreateSkillRequest{
+			AgentId:     agentID,
+			Name:        "Skill " + testID,
+			Body:        "skill body",
+			Description: "Skill description",
+		})
+		require.Error(t, err)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+		_, err = client.CreateSkill(ctx, &agentsv1.CreateSkillRequest{
+			AgentId: agentID,
+			Name:    "skill-no-description-" + testID,
+			Body:    "skill body",
+		})
+		require.Error(t, err)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 		updatedSkillResp, err := client.UpdateSkill(ctx, &agentsv1.UpdateSkillRequest{
 			Id:   skillID,

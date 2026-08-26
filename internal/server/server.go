@@ -39,10 +39,15 @@ func (s *Server) WithOrganizations(client OrganizationsClient) {
 
 const (
 	maxMcpNameLength   = 63
+	maxSkillNameLength = 64
 	defaultIdleTimeout = "5m"
 )
 
 var mcpNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// A skill's name is the directory the agent CLI discovers it in, so it is
+// constrained to what is a legal directory name for every CLI the platform runs.
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
 
 func New(store *store.Store, authz AuthorizationWriter, identity IdentityWriter, notifications notificationsv1.NotificationsServiceClient) *Server {
 	if store == nil {
@@ -1084,6 +1089,12 @@ func (s *Server) CreateSkill(ctx context.Context, req *agentsv1.CreateSkillReque
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "agent_id: %v", err)
 	}
+	if err := validateSkillName(req.GetName()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+	}
+	if err := validateSkillDescription(req.GetDescription()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "description: %v", err)
+	}
 	skill, err := s.store.CreateSkill(ctx, store.SkillInput{
 		AgentID:     agentID,
 		Name:        req.GetName(),
@@ -1121,6 +1132,9 @@ func (s *Server) UpdateSkill(ctx context.Context, req *agentsv1.UpdateSkillReque
 	update := store.SkillUpdate{}
 	if req.Name != nil {
 		value := req.GetName()
+		if err := validateSkillName(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "name: %v", err)
+		}
 		update.Name = &value
 	}
 	if req.Body != nil {
@@ -1129,6 +1143,9 @@ func (s *Server) UpdateSkill(ctx context.Context, req *agentsv1.UpdateSkillReque
 	}
 	if req.Description != nil {
 		value := req.GetDescription()
+		if err := validateSkillDescription(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "description: %v", err)
+		}
 		update.Description = &value
 	}
 
@@ -1582,6 +1599,28 @@ func validateMcpName(name string) error {
 	}
 	if !mcpNamePattern.MatchString(name) {
 		return fmt.Errorf("must match %s", mcpNamePattern.String())
+	}
+	return nil
+}
+
+func validateSkillName(name string) error {
+	if name == "" {
+		return fmt.Errorf("value is empty")
+	}
+	if len(name) > maxSkillNameLength {
+		return fmt.Errorf("must be at most %d characters", maxSkillNameLength)
+	}
+	if !skillNamePattern.MatchString(name) {
+		return fmt.Errorf("must match %s", skillNamePattern.String())
+	}
+	return nil
+}
+
+// Without a description the agent CLI has nothing to match the skill against,
+// and Codex refuses to load it at all.
+func validateSkillDescription(description string) error {
+	if strings.TrimSpace(description) == "" {
+		return fmt.Errorf("value is empty")
 	}
 	return nil
 }
