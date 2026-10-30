@@ -38,9 +38,13 @@ func (s *Server) WithOrganizations(client OrganizationsClient) {
 }
 
 const (
-	maxMcpNameLength   = 63
-	maxSkillNameLength = 64
-	defaultIdleTimeout = "5m"
+	maxMcpNameLength      = 63
+	maxSkillNameLength    = 64
+	defaultIdleTimeout    = "5m"
+	defaultHibernateAfter = "0s"
+	defaultHibernationTTL = "168h"
+	// The shortest hibernation_ttl accepted, in the form a refusal quotes it.
+	minHibernationTTL = "1h"
 )
 
 var mcpNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
@@ -220,6 +224,24 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		}
 		instanceIdleTTL = &value
 	}
+	hibernate := true
+	if req.Hibernate != nil {
+		hibernate = req.GetHibernate()
+	}
+	hibernateAfter := defaultHibernateAfter
+	if req.HibernateAfter != nil {
+		hibernateAfter = req.GetHibernateAfter()
+	}
+	if err := validateHibernateAfter(hibernateAfter); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "hibernate_after: %v", err)
+	}
+	hibernationTTL := defaultHibernationTTL
+	if req.HibernationTtl != nil {
+		hibernationTTL = req.GetHibernationTtl()
+	}
+	if err := validateHibernationTTL(hibernationTTL); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "hibernation_ttl: %v", err)
+	}
 	resolved, environment, err := s.agentEnvironment(ctx, req.GetEnvironmentId(), organizationID)
 	if err != nil {
 		return nil, err
@@ -260,6 +282,9 @@ func (s *Server) CreateAgent(ctx context.Context, req *agentsv1.CreateAgentReque
 		DefaultThread:   defaultThread,
 		FinalMessage:    finalMessage,
 		InstanceIdleTTL: instanceIdleTTL,
+		Hibernate:       hibernate,
+		HibernateAfter:  hibernateAfter,
+		HibernationTTL:  hibernationTTL,
 	})
 	if err != nil {
 		return nil, toStatusError(err)
@@ -364,7 +389,7 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 	// Either model reference, or a change of environment, re-decides the pair,
 	// so all three route through the same validation below.
 	modelProvided := req.Model != nil || req.ModelName != nil
-	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.ModelName == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil && req.InstanceIdleTtl == nil {
+	if req.Name == nil && req.Nickname == nil && req.Role == nil && req.Model == nil && req.ModelName == nil && req.Description == nil && req.Configuration == nil && req.Image == nil && req.InitImage == nil && req.IdleTimeout == nil && req.Resources == nil && !capabilitiesProvided && !availabilityProvided && !environmentProvided && req.DefaultThread == nil && req.FinalMessage == nil && req.InstanceIdleTtl == nil && req.Hibernate == nil && req.HibernateAfter == nil && req.HibernationTtl == nil {
 		return nil, status.Error(codes.InvalidArgument, "at least one field must be provided")
 	}
 	if req.InitImage != nil && req.GetInitImage() == "" {
@@ -477,6 +502,24 @@ func (s *Server) UpdateAgent(ctx context.Context, req *agentsv1.UpdateAgentReque
 			}
 		}
 		update.InstanceIdleTTL = &value
+	}
+	if req.Hibernate != nil {
+		value := req.GetHibernate()
+		update.Hibernate = &value
+	}
+	if req.HibernateAfter != nil {
+		value := req.GetHibernateAfter()
+		if err := validateHibernateAfter(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "hibernate_after: %v", err)
+		}
+		update.HibernateAfter = &value
+	}
+	if req.HibernationTtl != nil {
+		value := req.GetHibernationTtl()
+		if err := validateHibernationTTL(value); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "hibernation_ttl: %v", err)
+		}
+		update.HibernationTTL = &value
 	}
 	if req.FinalMessage != nil {
 		value, err := agentFinalMessageFromProto(req.GetFinalMessage())
@@ -1635,6 +1678,43 @@ func validateDurationString(value string) error {
 	}
 	if duration <= 0 {
 		return fmt.Errorf("must be a positive duration")
+	}
+	return nil
+}
+
+// validateHibernateAfter admits zero, which validateDurationString refuses:
+// "0s" hibernates at the turn boundary and is the default. A value at or above
+// idle_timeout is accepted too; it means the stop comes first.
+func validateHibernateAfter(value string) error {
+	if value == "" {
+		return fmt.Errorf("value is empty")
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return err
+	}
+	if duration < 0 {
+		return fmt.Errorf("must not be negative")
+	}
+	return nil
+}
+
+// validateHibernationTTL refuses a TTL below the minimum and names it, so the
+// caller learns the bound instead of guessing at it.
+func validateHibernationTTL(value string) error {
+	if value == "" {
+		return fmt.Errorf("value is empty")
+	}
+	ttl, err := time.ParseDuration(value)
+	if err != nil {
+		return err
+	}
+	minimum, err := time.ParseDuration(minHibernationTTL)
+	if err != nil {
+		return err
+	}
+	if ttl < minimum {
+		return fmt.Errorf("must be at least %s", minHibernationTTL)
 	}
 	return nil
 }

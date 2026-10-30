@@ -47,6 +47,11 @@ type Agent struct {
 	// is written, so they belong to the class rather than to an instance.
 	DefaultThread AgentDefaultThread
 	FinalMessage  AgentFinalMessage
+	// How the agent's idle workloads sleep on a runner that can hibernate
+	// them. Every agent has all three; the two durations are Go durations.
+	Hibernate      bool
+	HibernateAfter string
+	HibernationTTL string
 }
 
 // AgentDefaultThread governs the automatic creation path only. Naming a thread
@@ -334,6 +339,9 @@ type AgentInput struct {
 	DefaultThread   AgentDefaultThread
 	FinalMessage    AgentFinalMessage
 	InstanceIdleTTL *string
+	Hibernate       bool
+	HibernateAfter  string
+	HibernationTTL  string
 }
 
 type AgentUpdate struct {
@@ -357,6 +365,9 @@ type AgentUpdate struct {
 	DefaultThread      *AgentDefaultThread
 	FinalMessage       *AgentFinalMessage
 	InstanceIdleTTL    *string
+	Hibernate          *bool
+	HibernateAfter     *string
+	HibernationTTL     *string
 }
 
 type VolumeInput struct {
@@ -464,7 +475,7 @@ type EnvironmentInput struct {
 	LLMMode              LLMMode
 	LLMAllowedModels     []string
 	// Nil takes the column default, which is on.
-	PersistentShells     *bool
+	PersistentShells *bool
 }
 
 type EnvironmentUpdate struct {
