@@ -14,13 +14,14 @@ import (
 // The migrations under test. The first two derive an organization for every row
 // already in their table from the target that row carries, so reads can be
 // scoped by it. The third gives agents the environment reference that supersedes
-// the image and compute they carried inline. The last gives agents their
-// hibernation settings.
+// the image and compute they carried inline. The last two give agents their
+// hibernation settings and sandboxes the status of being asleep.
 const (
 	envOrganizationScopeMigration                       = "0016_env_organization_scope.sql"
 	imagePullSecretAttachmentOrganizationScopeMigration = "0017_image_pull_secret_attachment_organization_scope.sql"
 	agentEnvironmentMigration                           = "0018_agent_environment.sql"
 	agentHibernationMigration                           = "0029_agent_hibernation.sql"
+	sandboxHibernatedStatusMigration                    = "0030_sandbox_hibernated_status.sql"
 )
 
 const (
@@ -340,5 +341,34 @@ func TestAgentHibernationDefaultsForAgentsThatPredateIt(t *testing.T) {
 	}
 	if !hibernate || hibernateAfter != "0s" || hibernationTTL != "168h" {
 		t.Fatalf("expected hibernate on, 0s and 168h, got %t, %q and %q", hibernate, hibernateAfter, hibernationTTL)
+	}
+}
+
+// The replaced check admits hibernated beside the statuses it already held, and
+// still refuses a status nobody defined.
+func TestSandboxStatusAdmitsHibernated(t *testing.T) {
+	ctx := context.Background()
+	pool := migrationTestPool(ctx, t)
+	applyMigrationsBefore(ctx, t, pool, sandboxHibernatedStatusMigration)
+	execAll(ctx, t, pool, []string{
+		`INSERT INTO environments (id, organization_id, name, flavor_id, image) VALUES
+			('eeeeeeee-0000-0000-0000-000000000001', '` + organizationOne + `', 'one', uuid_generate_v4(), 'env:1')`,
+		`INSERT INTO sandboxes (id, organization_id, name, environment_id, owner_id, status, idle_timeout, ttl, environment_name) VALUES
+			('ffffffff-0000-0000-0000-000000000001', '` + organizationOne + `', 'brave-otter', 'eeeeeeee-0000-0000-0000-000000000001', uuid_generate_v4(), 'running', '30m', '72h', 'one')`,
+	})
+
+	if err := ApplyMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE sandboxes SET status = 'hibernated' WHERE id = 'ffffffff-0000-0000-0000-000000000001'`,
+	); err != nil {
+		t.Fatalf("expected hibernated to be accepted: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE sandboxes SET status = 'asleep' WHERE id = 'ffffffff-0000-0000-0000-000000000001'`,
+	); err == nil {
+		t.Fatal("expected an undefined status to be refused")
 	}
 }

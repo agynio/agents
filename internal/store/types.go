@@ -116,6 +116,7 @@ type SandboxStatus string
 const (
 	SandboxStatusStarting   SandboxStatus = "starting"
 	SandboxStatusRunning    SandboxStatus = "running"
+	SandboxStatusHibernated SandboxStatus = "hibernated"
 	SandboxStatusStopped    SandboxStatus = "stopped"
 	SandboxStatusFailed     SandboxStatus = "failed"
 	SandboxStatusTerminated SandboxStatus = "terminated"
