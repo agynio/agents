@@ -43,6 +43,9 @@ func toProtoAgent(agent store.Agent) *agentsv1.Agent {
 		Resources:      toProtoComputeResources(agent.Resources),
 		DefaultThread:  agentDefaultThreadToProto(agent.DefaultThread),
 		FinalMessage:   agentFinalMessageToProto(agent.FinalMessage),
+		Hibernate:      agent.Hibernate,
+		HibernateAfter: protoString(agent.HibernateAfter),
+		HibernationTtl: protoString(agent.HibernationTTL),
 	}
 	if agent.InstanceIdleTTL != nil {
 		protoAgent.InstanceIdleTtl = agent.InstanceIdleTTL

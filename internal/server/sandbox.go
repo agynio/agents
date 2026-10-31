@@ -563,10 +563,20 @@ func (s *Server) sandboxRuntimeStateUpdatedResponse(ctx context.Context, sandbox
 	return &agentsv1.UpdateSandboxRuntimeStateResponse{Sandbox: toProtoSandbox(sandbox)}
 }
 
+// sandboxRestartOnConnectUpdate is what EnsureSandboxRunning writes: nothing
+// for a sandbox already up or on its way, a wake for a hibernated one, a
+// restart for a stopped one and a fresh attempt for a failed one. Each is a
+// request to the Orchestrator, which acts on the sandbox.updated it causes.
 func sandboxRestartOnConnectUpdate(sandboxStatus store.SandboxStatus) (store.SandboxUpdate, bool, error) {
 	switch sandboxStatus {
 	case store.SandboxStatusRunning, store.SandboxStatusStarting:
 		return store.SandboxUpdate{}, false, nil
+	case store.SandboxStatusHibernated:
+		// A wake, not a restart: the Orchestrator resumes the workload the
+		// record names, shells and processes where they were, so the
+		// reference is kept rather than cleared.
+		starting := store.SandboxStatusStarting
+		return store.SandboxUpdate{Status: &starting}, true, nil
 	case store.SandboxStatusStopped, store.SandboxStatusFailed:
 		starting := store.SandboxStatusStarting
 		return store.SandboxUpdate{Status: &starting, ClearWorkloadID: true}, true, nil
@@ -768,6 +778,8 @@ func sandboxStatusToProto(sandboxStatus store.SandboxStatus) agentsv1.SandboxSta
 		return agentsv1.SandboxStatus_SANDBOX_STATUS_STARTING
 	case store.SandboxStatusRunning:
 		return agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING
+	case store.SandboxStatusHibernated:
+		return agentsv1.SandboxStatus_SANDBOX_STATUS_HIBERNATED
 	case store.SandboxStatusStopped:
 		return agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED
 	case store.SandboxStatusFailed:
@@ -816,6 +828,8 @@ func sandboxStatusFromProto(sandboxStatus agentsv1.SandboxStatus) (store.Sandbox
 		return store.SandboxStatusStarting, nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_RUNNING:
 		return store.SandboxStatusRunning, nil
+	case agentsv1.SandboxStatus_SANDBOX_STATUS_HIBERNATED:
+		return store.SandboxStatusHibernated, nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_STOPPED:
 		return store.SandboxStatusStopped, nil
 	case agentsv1.SandboxStatus_SANDBOX_STATUS_FAILED:

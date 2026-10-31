@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	agentColumns                     = `id, organization_id, name, nickname, role, model, model_name, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, created_at, updated_at`
+	agentColumns                     = `id, organization_id, name, nickname, role, model, model_name, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, hibernate, hibernate_after, hibernation_ttl, created_at, updated_at`
 	volumeColumns                    = `id, organization_id, environment_id, mcp_id, name, mount_path, persistent, size, storage_class, ttl, created_at, updated_at`
 	imagePullSecretAttachmentColumns = `id, organization_id, image_pull_secret_id, agent_id, mcp_id, environment_id, created_at, updated_at`
 	environmentColumns               = `id, organization_id, name, flavor_id, image, flavor_name, runner_id, flavor, workspace_image_id, workspace_image_tag, agent_runtime_image_id, agent_runtime_image_tag, availability, llm_mode, llm_allowed_models, persistent_shells, created_at, updated_at`
@@ -103,6 +103,9 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.DefaultThread,
 		&agent.FinalMessage,
 		&instanceIdleTTL,
+		&agent.Hibernate,
+		&agent.HibernateAfter,
+		&agent.HibernationTTL,
 		&agent.Meta.CreatedAt,
 		&agent.Meta.UpdatedAt,
 	); err != nil {
@@ -333,8 +336,8 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		return Agent{}, err
 	}
 	row := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, model_name, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		fmt.Sprintf(`INSERT INTO agents (organization_id, name, nickname, role, model, model_name, description, configuration, image, init_image, idle_timeout, capabilities, availability, resources_requests_cpu, resources_requests_memory, resources_limits_cpu, resources_limits_memory, environment_id, default_thread, final_message, instance_idle_ttl, hibernate, hibernate_after, hibernation_ttl)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 		 RETURNING %s`, agentColumns),
 		organizationID,
 		input.Name,
@@ -357,6 +360,9 @@ func (s *Store) CreateAgent(ctx context.Context, organizationID uuid.UUID, input
 		input.DefaultThread,
 		input.FinalMessage,
 		input.InstanceIdleTTL,
+		input.Hibernate,
+		input.HibernateAfter,
+		input.HibernationTTL,
 	)
 	agent, err := scanAgent(row)
 	if err != nil {
@@ -445,6 +451,15 @@ func (s *Store) UpdateAgent(ctx context.Context, id uuid.UUID, update AgentUpdat
 	}
 	if update.InstanceIdleTTL != nil {
 		builder.add("instance_idle_ttl", *update.InstanceIdleTTL)
+	}
+	if update.Hibernate != nil {
+		builder.add("hibernate", *update.Hibernate)
+	}
+	if update.HibernateAfter != nil {
+		builder.add("hibernate_after", *update.HibernateAfter)
+	}
+	if update.HibernationTTL != nil {
+		builder.add("hibernation_ttl", *update.HibernationTTL)
 	}
 
 	if builder.empty() {
