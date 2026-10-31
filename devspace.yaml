@@ -1,13 +1,12 @@
 version: v2beta1
 
 vars:
-  AGENTS_NAMESPACE: agyn-platform
   DEV_IMAGE: ghcr.io/agynio/devcontainer-go:1
 
 functions:
   patch_deployment: |-
     echo "Patching agents deployment for DevSpace..."
-    kubectl patch deployment agents -n ${AGENTS_NAMESPACE} --type strategic --patch "$(cat <<'EOF'
+    kubectl patch deployment agents -n agyn-platform --type strategic --patch "$(cat <<'EOF'
     spec:
       template:
         spec:
@@ -35,7 +34,7 @@ functions:
                     sleep 1; elapsed=$((elapsed + 1))
                     [ "$elapsed" -ge 120 ] && { echo "ERROR: sync timeout" >&2; exit 1; }
                   done
-                  [ -d /opt/app/data/.gen ] || buf generate buf.build/agynio/api --path agynio/api/agents/v1 --path agynio/api/authorization/v1 --path agynio/api/identity/v1 --path agynio/api/images/v1 --path agynio/api/notifications/v1 --path agynio/api/organizations/v1
+                  buf generate buf.build/agynio/api --path agynio/api/agents/v1 --path agynio/api/authorization/v1 --path agynio/api/identity/v1 --path agynio/api/images/v1 --path agynio/api/notifications/v1 --path agynio/api/organizations/v1
                   exec go run ./cmd/agents-service
               volumeMounts:
                 - name: data
@@ -79,7 +78,7 @@ pipelines:
         echo "Waiting for agents to be healthy on :50051..."
         healthy=false
         for i in $(seq 1 60); do
-          if exec_container --label-selector=app.kubernetes.io/name=agents -n ${AGENTS_NAMESPACE} -- bash -c 'nc -z localhost 50051 >/dev/null 2>&1 || (echo > /dev/tcp/localhost/50051) >/dev/null 2>&1'; then
+          if exec_container --label-selector=app.kubernetes.io/name=agents -n agyn-platform -- bash -c 'nc -z localhost 50051 >/dev/null 2>&1 || (echo > /dev/tcp/localhost/50051) >/dev/null 2>&1'; then
             healthy=true
             break
           fi
@@ -97,7 +96,7 @@ hooks:
 
 dev:
   agents:
-    namespace: ${AGENTS_NAMESPACE}
+    namespace: agyn-platform
     labelSelector:
       app.kubernetes.io/name: agents
     containers:
