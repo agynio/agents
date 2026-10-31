@@ -19,13 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	IdentityService_RegisterIdentity_FullMethodName      = "/agynio.api.identity.v1.IdentityService/RegisterIdentity"
-	IdentityService_GetIdentityType_FullMethodName       = "/agynio.api.identity.v1.IdentityService/GetIdentityType"
-	IdentityService_BatchGetIdentityTypes_FullMethodName = "/agynio.api.identity.v1.IdentityService/BatchGetIdentityTypes"
-	IdentityService_SetNickname_FullMethodName           = "/agynio.api.identity.v1.IdentityService/SetNickname"
-	IdentityService_RemoveNickname_FullMethodName        = "/agynio.api.identity.v1.IdentityService/RemoveNickname"
-	IdentityService_ResolveNickname_FullMethodName       = "/agynio.api.identity.v1.IdentityService/ResolveNickname"
-	IdentityService_BatchGetNicknames_FullMethodName     = "/agynio.api.identity.v1.IdentityService/BatchGetNicknames"
+	IdentityService_RegisterIdentity_FullMethodName            = "/agynio.api.identity.v1.IdentityService/RegisterIdentity"
+	IdentityService_GetIdentityType_FullMethodName             = "/agynio.api.identity.v1.IdentityService/GetIdentityType"
+	IdentityService_BatchGetIdentityTypes_FullMethodName       = "/agynio.api.identity.v1.IdentityService/BatchGetIdentityTypes"
+	IdentityService_SetNickname_FullMethodName                 = "/agynio.api.identity.v1.IdentityService/SetNickname"
+	IdentityService_RemoveNickname_FullMethodName              = "/agynio.api.identity.v1.IdentityService/RemoveNickname"
+	IdentityService_ResolveNickname_FullMethodName             = "/agynio.api.identity.v1.IdentityService/ResolveNickname"
+	IdentityService_BatchGetNicknames_FullMethodName           = "/agynio.api.identity.v1.IdentityService/BatchGetNicknames"
+	IdentityService_DeleteOrganizationResources_FullMethodName = "/agynio.api.identity.v1.IdentityService/DeleteOrganizationResources"
 )
 
 // IdentityServiceClient is the client API for IdentityService service.
@@ -53,6 +54,7 @@ type IdentityServiceClient interface {
 	// BatchGetNicknames resolves identity IDs to nicknames within an org.
 	// Unknown or unset nicknames are omitted from the response.
 	BatchGetNicknames(ctx context.Context, in *BatchGetNicknamesRequest, opts ...grpc.CallOption) (*BatchGetNicknamesResponse, error)
+	DeleteOrganizationResources(ctx context.Context, in *DeleteOrganizationResourcesRequest, opts ...grpc.CallOption) (*DeleteOrganizationResourcesResponse, error)
 }
 
 type identityServiceClient struct {
@@ -133,6 +135,16 @@ func (c *identityServiceClient) BatchGetNicknames(ctx context.Context, in *Batch
 	return out, nil
 }
 
+func (c *identityServiceClient) DeleteOrganizationResources(ctx context.Context, in *DeleteOrganizationResourcesRequest, opts ...grpc.CallOption) (*DeleteOrganizationResourcesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteOrganizationResourcesResponse)
+	err := c.cc.Invoke(ctx, IdentityService_DeleteOrganizationResources_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IdentityServiceServer is the server API for IdentityService service.
 // All implementations should embed UnimplementedIdentityServiceServer
 // for forward compatibility.
@@ -158,6 +170,7 @@ type IdentityServiceServer interface {
 	// BatchGetNicknames resolves identity IDs to nicknames within an org.
 	// Unknown or unset nicknames are omitted from the response.
 	BatchGetNicknames(context.Context, *BatchGetNicknamesRequest) (*BatchGetNicknamesResponse, error)
+	DeleteOrganizationResources(context.Context, *DeleteOrganizationResourcesRequest) (*DeleteOrganizationResourcesResponse, error)
 }
 
 // UnimplementedIdentityServiceServer should be embedded to have
@@ -187,6 +200,9 @@ func (UnimplementedIdentityServiceServer) ResolveNickname(context.Context, *Reso
 }
 func (UnimplementedIdentityServiceServer) BatchGetNicknames(context.Context, *BatchGetNicknamesRequest) (*BatchGetNicknamesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BatchGetNicknames not implemented")
+}
+func (UnimplementedIdentityServiceServer) DeleteOrganizationResources(context.Context, *DeleteOrganizationResourcesRequest) (*DeleteOrganizationResourcesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteOrganizationResources not implemented")
 }
 func (UnimplementedIdentityServiceServer) testEmbeddedByValue() {}
 
@@ -334,6 +350,24 @@ func _IdentityService_BatchGetNicknames_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IdentityService_DeleteOrganizationResources_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteOrganizationResourcesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IdentityServiceServer).DeleteOrganizationResources(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IdentityService_DeleteOrganizationResources_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IdentityServiceServer).DeleteOrganizationResources(ctx, req.(*DeleteOrganizationResourcesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IdentityService_ServiceDesc is the grpc.ServiceDesc for IdentityService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -368,6 +402,10 @@ var IdentityService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchGetNicknames",
 			Handler:    _IdentityService_BatchGetNicknames_Handler,
+		},
+		{
+			MethodName: "DeleteOrganizationResources",
+			Handler:    _IdentityService_DeleteOrganizationResources_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
